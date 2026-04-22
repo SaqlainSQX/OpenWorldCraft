@@ -211,6 +211,77 @@ def paint_acid(tile):
             lighter = blend(old, (220, 255, 180), 0.35)
             tile.putpixel((x, y), lighter)
 
+def paint_alien_wood_side(tile):
+    # Dark bark with vertical grain + glowing cracks
+    base = (45, 28, 40)
+    crack = (180, 80, 210)  # magenta glow through cracks
+    for x in range(TILE_PX):
+        for y in range(TILE_PX):
+            # vertical grain: slight per-column tint variation
+            tint = (x * 7919) % 20 - 10
+            col = (clamp8(base[0] + tint), clamp8(base[1] + tint // 2), clamp8(base[2] + tint))
+            tile.putpixel((x, y), jitter(col, 6))
+    # vertical glow cracks
+    for _ in range(2):
+        x = random.randint(1, TILE_PX - 2)
+        for y in range(TILE_PX):
+            if random.random() < 0.7:
+                old = tile.getpixel((x, y))
+                tile.putpixel((x, y), blend(old, crack, 0.55))
+
+def paint_alien_wood_end(tile):
+    # Growth-ring pattern: concentric rings darker outward
+    cx, cy = 7.5, 7.5
+    core = (90, 60, 80)
+    ring = (35, 20, 32)
+    glow = (180, 80, 210)
+    for x in range(TILE_PX):
+        for y in range(TILE_PX):
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            # alternating rings every ~2 pixels
+            r = int(d) % 3
+            if r == 0:
+                c = core
+            elif r == 1:
+                c = ring
+            else:
+                c = blend(core, ring, 0.5)
+            tile.putpixel((x, y), jitter(c, 8))
+    # small magenta glow at core
+    for x in range(6, 10):
+        for y in range(6, 10):
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if d < 1.5:
+                old = tile.getpixel((x, y))
+                tile.putpixel((x, y), blend(old, glow, 0.8))
+
+def paint_glow_leaves(tile):
+    # Dense cluster of small leaf blobs in teal/magenta, with dark transparent gaps
+    base_dark = (20, 10, 30)
+    leaf_teal = (90, 220, 180)
+    leaf_magenta = (210, 90, 200)
+    for x in range(TILE_PX):
+        for y in range(TILE_PX):
+            tile.putpixel((x, y), base_dark)
+    # scattered blobs
+    for _ in range(12):
+        cx = random.randint(1, TILE_PX - 2)
+        cy = random.randint(1, TILE_PX - 2)
+        color = leaf_teal if random.random() < 0.65 else leaf_magenta
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                nx, ny = cx + dx, cy + dy
+                if 0 <= nx < TILE_PX and 0 <= ny < TILE_PX:
+                    if dx * dx + dy * dy <= 2:
+                        tile.putpixel((nx, ny), jitter(color, 18))
+    # bright highlight dots
+    for _ in range(8):
+        x = random.randint(0, TILE_PX - 1)
+        y = random.randint(0, TILE_PX - 1)
+        old = tile.getpixel((x, y))
+        if old != base_dark:
+            tile.putpixel((x, y), (240, 255, 240))
+
 # ---------- atlas layout -------------------------------------------------
 
 TILE_PAINTERS = {
@@ -224,6 +295,9 @@ TILE_PAINTERS = {
     6:  paint_glowmoss_top,       # glowmoss top
     7:  paint_glowmoss_side,      # glowmoss sides
     8:  paint_fungus,             # fungus
+    9:  paint_alien_wood_side,    # wood bark
+    10: paint_alien_wood_end,     # wood rings
+    11: paint_glow_leaves,        # canopy
     16: paint_acid,               # acid (was water)
 }
 

@@ -43,8 +43,16 @@ export default class Shader
 	{
 		let gl = this.gl;
 		let loca = gl.getUniformLocation(this.prog, name);
-		
+
 		gl.uniform3fv(loca, vec.data);
+	}
+
+	assignFloat(name, value)
+	{
+		let gl = this.gl;
+		let loca = gl.getUniformLocation(this.prog, name);
+
+		gl.uniform1f(loca, value);
 	}
 	
 	assignMatrix(name, mat)

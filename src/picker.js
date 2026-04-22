@@ -42,19 +42,27 @@ export default class Picker
 		this.model = new Matrix();
 		this.hasHit = false;
 		this.hitVox = null;
+		this.placeVox = null;
 	}
-	
+
 	pick(pos, vec, len)
 	{
 		let scaledVec = vec.clone();
-		
+
 		scaledVec.scale(len);
-		
+
 		let hit = this.map.raymarch(pos.data, scaledVec.data);
-		
+
 		if(hit) {
 			this.hasHit = true;
 			this.hitVox = hit.voxpos;
+
+			// Voxel adjacent to the hit face (the empty cell on the entry side).
+			// Ray advances voxpos by step before the hit check, so stepping back
+			// one unit along the hit axis lands on the empty neighbour.
+			this.placeVox = [hit.voxpos[0], hit.voxpos[1], hit.voxpos[2]];
+			this.placeVox[hit.axis] -= hit.step[hit.axis];
+
 			this.model.set();
 			this.model.translate(...hit.voxpos);
 			

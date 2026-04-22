@@ -22,4 +22,6 @@ export default [
 	{ name: "acid",        faces: [16,16,16,16,16,16], transparent: true, emissive: true },
 	{ name: "glowmoss",    faces: [7, 7, 1, 7, 7, 6], emissive: true },
 	{ name: "fungus",      faces: [8, 8, 8, 8, 8, 8], emissive: true },
+	{ name: "alien_wood",  faces: [9, 9,10, 9, 9,10] },
+	{ name: "glow_leaves", faces: [11,11,11,11,11,11], transparent: true, emissive: true },
 ];

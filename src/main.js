@@ -13,6 +13,7 @@ import Server from "./server.js";
 import Sky from "./sky.js";
 import Speaker from "./speaker.js";
 import Mob from "./mob.js";
+import Hotbar from "./hotbar.js";
 
 let display = new Display();
 
@@ -36,6 +37,9 @@ let dbg = new Debugger(camera, map, controller, server);
 
 dbg.enable();
 dbg.appendToBody();
+
+let hotbar = new Hotbar(controller);
+hotbar.appendToBody();
 
 let sun = new Vector(0,0,1);
 
@@ -99,7 +103,8 @@ display.onframe = () =>
 	camera.update(1/60);
 	
 	picker.pick(camera.pos, camera.lookat, 16);
-	
+	hotbar.update();
+
 	map.update();
 	
 	for(let id in players) {

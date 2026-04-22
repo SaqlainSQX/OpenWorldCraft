@@ -18,6 +18,9 @@ Requires only `python3` for the static dev server.
 - **Shift** — sprint (on land only)
 - **Space** — jump on land / swim up in acid pools
 - **Left click** — break block
+- **Right click** — place currently-held block
+- **1–9** — select hotbar slot
+- **Scroll wheel** — cycle hotbar slot
 - **F3** — debug overlay
 - **Esc** — release pointer
 
