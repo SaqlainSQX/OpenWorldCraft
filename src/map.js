@@ -142,10 +142,46 @@ export default class Map
 		this.forEachChunk(chunk => chunk.update());
 	}
 
-	draw(camera, sun)
+	draw(camera, sun, shadowMap)
 	{
-		this.forEachChunk(chunk => chunk.draw(camera, sun, false));
-		this.forEachChunk(chunk => chunk.draw(camera, sun, true));
+		// Distance-cull: only draw chunks within DRAW_RADIUS of the camera's
+		// chunk position. Previously every loaded chunk was drawn every frame,
+		// so the work grew unbounded as the player moved around.
+		const DRAW_RADIUS = 2;
+		const R2 = DRAW_RADIUS * DRAW_RADIUS;
+		let ccx = Math.floor(camera.pos.x / 16);
+		let ccy = Math.floor(camera.pos.y / 16);
+
+		this.forEachChunk(chunk => {
+			let dx = chunk.cx - ccx;
+			let dy = chunk.cy - ccy;
+			if(dx * dx + dy * dy > R2) return;
+			chunk.draw(camera, sun, false, shadowMap);
+		});
+		this.forEachChunk(chunk => {
+			let dx = chunk.cx - ccx;
+			let dy = chunk.cy - ccy;
+			if(dx * dx + dy * dy > R2) return;
+			chunk.draw(camera, sun, true, shadowMap);
+		});
+	}
+
+	// Renders opaque chunk geometry (no transparent blocks — leaves/acid
+	// don't cast shadows) from the light's POV, using the ShadowMap's
+	// depth-only shader. Uses the same cull radius as the colour pass.
+	drawDepth(camera, shadowShader)
+	{
+		const DRAW_RADIUS = 2;
+		const R2 = DRAW_RADIUS * DRAW_RADIUS;
+		let ccx = Math.floor(camera.pos.x / 16);
+		let ccy = Math.floor(camera.pos.y / 16);
+
+		this.forEachChunk(chunk => {
+			let dx = chunk.cx - ccx;
+			let dy = chunk.cy - ccy;
+			if(dx * dx + dy * dy > R2) return;
+			chunk.drawDepth(shadowShader);
+		});
 	}
 
 	raymarch(start, vec)

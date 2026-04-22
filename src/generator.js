@@ -55,7 +55,7 @@ export default class Generator
 		let moss = this.sample2d(rx / 6 + 101, ry / 6 + 73);
 		if(moss > 0.72) return false;                 // that tile is glowmoss
 		let seed = this.sample2d(rx * 3.7 + 17, ry * 2.9 + 31);
-		return seed > 0.93;                           // very sparse — occasional landmark trees
+		return seed > 0.955;                          // ~30% sparser than before
 	}
 
 	// Deterministic trunk height 4-6 for a given tree root.
@@ -64,34 +64,54 @@ export default class Generator
 		return 4 + Math.floor(this.sample2d(rx * 7.3, ry * 5.1) * 3);
 	}
 
-	// For an air position above ground, check whether it falls inside any
-	// nearby tree's trunk or canopy. Returns the block id or 0.
+	// Build (once per chunk) the list of tree roots that could place blocks
+	// into the 16x16 column spanning chunk (cx, cy). Padded by 2 on each side
+	// so canopies that overhang neighbouring chunks are accounted for.
+	getChunkTrees(cx, cy)
+	{
+		if(this._treesCx === cx && this._treesCy === cy) {
+			return this._trees;
+		}
+		let trees = [];
+		for(let dy = -2; dy < 18; dy++) {
+			for(let dx = -2; dx < 18; dx++) {
+				let rx = cx * 16 + dx;
+				let ry = cy * 16 + dy;
+				if(this.hasTreeAt(rx, ry)) {
+					let ground = this.getHeight(rx, ry);
+					trees.push({
+						x: rx, y: ry, ground,
+						topZ: ground + this.treeHeightAt(rx, ry),
+					});
+				}
+			}
+		}
+		this._trees = trees;
+		this._treesCx = cx;
+		this._treesCy = cy;
+		return trees;
+	}
+
+	// Per-block tree check, now O(trees-in-chunk) instead of O(5x5 * noise).
 	getTreeBlock(x, y, z)
 	{
-		// Search a 5x5 footprint around (x, y) — canopy radius ~2.
-		for(let dy = -2; dy <= 2; dy++) {
-			for(let dx = -2; dx <= 2; dx++) {
-				let rx = x - dx;
-				let ry = y - dy;
-				if(!this.hasTreeAt(rx, ry)) continue;
+		let cx = Math.floor(x / 16);
+		let cy = Math.floor(y / 16);
+		let trees = this.getChunkTrees(cx, cy);
+		for(let i = 0; i < trees.length; i++) {
+			let t = trees[i];
+			let dx = x - t.x, dy = y - t.y;
+			if(dx < -2 || dx > 2 || dy < -2 || dy > 2) continue;
 
-				let ground = this.getHeight(rx, ry);
-				let th = this.treeHeightAt(rx, ry);
-				let topZ = ground + th;
+			// Trunk column
+			if(dx === 0 && dy === 0 && z > t.ground && z <= t.topZ) {
+				return 9;  // alien_wood
+			}
 
-				// Trunk: only at the root column
-				if(dx === 0 && dy === 0 && z > ground && z <= topZ) {
-					return 9;  // alien_wood
-				}
-
-				// Canopy: approximate sphere around (rx, ry, topZ)
-				// Slightly oblate so it looks more natural.
-				let ddx = dx, ddy = dy;
-				let ddz = z - topZ;
-				let distSq = ddx * ddx + ddy * ddy + ddz * ddz * 1.3;
-				if(distSq <= 5.5 && z > ground) {
-					return 10; // glow_leaves
-				}
+			// Canopy — slightly oblate sphere around the treetop.
+			let ddz = z - t.topZ;
+			if(dx * dx + dy * dy + ddz * ddz * 1.3 <= 5.5 && z > t.ground) {
+				return 10; // glow_leaves
 			}
 		}
 		return 0;

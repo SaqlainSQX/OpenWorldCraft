@@ -54,6 +54,16 @@ export default class Shader
 
 		gl.uniform1f(loca, value);
 	}
+
+	// Set a `uniform vec3 name[N]` from a flat Float32Array of length 3*N.
+	// getUniformLocation on the bare array name returns the location of [0].
+	assignVector3Array(name, flat)
+	{
+		let gl = this.gl;
+		let loca = gl.getUniformLocation(this.prog, name);
+
+		gl.uniform3fv(loca, flat);
+	}
 	
 	assignMatrix(name, mat)
 	{

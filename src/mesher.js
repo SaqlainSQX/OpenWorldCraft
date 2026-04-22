@@ -196,12 +196,16 @@ function remeshSide(
 					let ao1 = val >> 10 & 3;
 					let ao2 = val >> 12 & 3;
 					let ao3 = val >> 14 & 3;
+					// Emissive flag hitch-hikes on the ao attribute: +4 when the
+					// block is emissive. The chunk shader unpacks the flag back
+					// out and uses the remaining 0-3 as the true AO value.
+					let boost = blocks[block].emissive ? 4 : 0;
 					let quadw = (j[ax0] - i[ax0]) * s[ax0];
 					let quadh = (k[ax1] - i[ax1]) * s[ax1];
-					let v0 = [...i, nx, ny, nz,     0, quadh, face, ao0];
-					let v1 = [...i, nx, ny, nz, quadw, quadh, face, ao1];
-					let v2 = [...i, nx, ny, nz,     0,     0, face, ao2];
-					let v3 = [...i, nx, ny, nz, quadw,     0, face, ao3];
+					let v0 = [...i, nx, ny, nz,     0, quadh, face, ao0 + boost];
+					let v1 = [...i, nx, ny, nz, quadw, quadh, face, ao1 + boost];
+					let v2 = [...i, nx, ny, nz,     0,     0, face, ao2 + boost];
+					let v3 = [...i, nx, ny, nz, quadw,     0, face, ao3 + boost];
 					
 					v1[ax0] = j[ax0];
 					v3[ax0] = j[ax0];

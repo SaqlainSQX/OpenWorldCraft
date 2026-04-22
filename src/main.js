@@ -14,6 +14,7 @@ import Sky from "./sky.js";
 import Speaker from "./speaker.js";
 import Mob from "./mob.js";
 import Hotbar from "./hotbar.js";
+import ShadowMap from "./shadowmap.js";
 
 let display = new Display();
 
@@ -43,7 +44,8 @@ hotbar.appendToBody();
 
 let sun = new Vector(0,0,1);
 
-sun.rotateX(radians(30));
+// Tilt the sun 45° off vertical so shadows are long and visible.
+sun.rotateX(radians(45));
 
 let model = new Model(
 	display,
@@ -81,6 +83,7 @@ server.onSetPlayerPos = (id, x, y, z, rx, rz) => {
 };
 
 let sky = new Sky(display);
+let shadowMap = new ShadowMap(display, 1024);
 
 display.onframe = () =>
 {
@@ -88,11 +91,19 @@ display.onframe = () =>
 	
 	let cx = Math.floor(camera.pos.x / 16);
 	let cy = Math.floor(camera.pos.y / 16);
-	
-	for(let y = cy - 1; y <= cy + 1; y++) {
-		for(let x = cx - 1; x <= cx + 1; x++) {
-			map.loadChunk(x, y);
+
+	// Load a 5x5 region around the player (matches map.draw's cull radius).
+	// One new chunk at a time so crossing a boundary doesn't stall on a big
+	// batch of generation.
+	const LOAD_RADIUS = 2;
+	let missing = null;
+	for(let y = cy - LOAD_RADIUS; y <= cy + LOAD_RADIUS && !missing; y++) {
+		for(let x = cx - LOAD_RADIUS; x <= cx + LOAD_RADIUS && !missing; x++) {
+			if(!map.getChunk(x, y)) missing = [x, y];
 		}
+	}
+	if(missing) {
+		map.loadChunk(missing[0], missing[1]);
 	}
 	
 	controller.update(1/60);
@@ -111,12 +122,16 @@ display.onframe = () =>
 		players[id].update(1/60);
 	}
 	
+	// Shadow pass: render nearby chunks into the light-space depth texture.
+	shadowMap.update(camera, sun);
+	shadowMap.render(shader => map.drawDepth(camera, shader));
+
 	sky.draw(camera);
-	map.draw(camera, sun);
-	
+	map.draw(camera, sun, shadowMap);
+
 	for(let id in players) {
 		players[id].draw(camera, sun);
 	}
-	
+
 	picker.draw(camera);
 };

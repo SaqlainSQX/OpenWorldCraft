@@ -105,7 +105,7 @@ export default class Matrix
 		let c = Math.cos(a);
 		let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
 		let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-		
+
 		m[0] =  c * a00 + s * a10;
 		m[1] =  c * a01 + s * a11;
 		m[2] =  c * a02 + s * a12;
@@ -114,5 +114,67 @@ export default class Matrix
 		m[5] = -s * a01 + c * a11;
 		m[6] = -s * a02 + c * a12;
 		m[7] = -s * a03 + c * a13;
+	}
+
+	// Orthographic projection. Column-major storage to match WebGL.
+	ortho(l, r, b, t, n, f)
+	{
+		this.set(
+			2 / (r - l), 0, 0, 0,
+			0, 2 / (t - b), 0, 0,
+			0, 0, -2 / (f - n), 0,
+			-(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1,
+		);
+	}
+
+	// World -> view matrix for a camera at `eye` looking at `target`, with a
+	// reference up vector `up`. Standard OpenGL-style view (view space Z is
+	// -forward).
+	lookAt(ex, ey, ez, tx, ty, tz, ux, uy, uz)
+	{
+		// forward = normalize(target - eye)
+		let fx = tx - ex, fy = ty - ey, fz = tz - ez;
+		let fl = Math.sqrt(fx*fx + fy*fy + fz*fz) || 1;
+		fx /= fl; fy /= fl; fz /= fl;
+
+		// right = normalize(forward x up)
+		let rx = fy*uz - fz*uy;
+		let ry = fz*ux - fx*uz;
+		let rz = fx*uy - fy*ux;
+		let rl = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
+		rx /= rl; ry /= rl; rz /= rl;
+
+		// up' = right x forward (re-orthogonalised)
+		let u2x = ry*fz - rz*fy;
+		let u2y = rz*fx - rx*fz;
+		let u2z = rx*fy - ry*fx;
+
+		// Column-major: each group of four is one column.
+		this.set(
+			rx,  u2x, -fx, 0,
+			ry,  u2y, -fy, 0,
+			rz,  u2z, -fz, 0,
+			-(rx*ex + ry*ey + rz*ez),
+			-(u2x*ex + u2y*ey + u2z*ez),
+			fx*ex + fy*ey + fz*ez,
+			1,
+		);
+	}
+
+	// this = a * b (column-major)
+	multiply(a, b)
+	{
+		let A = a.data, B = b.data;
+		let r = new Array(16);
+		for(let c = 0; c < 4; c++) {
+			for(let rowi = 0; rowi < 4; rowi++) {
+				let s = 0;
+				for(let k = 0; k < 4; k++) {
+					s += A[k * 4 + rowi] * B[c * 4 + k];
+				}
+				r[c * 4 + rowi] = s;
+			}
+		}
+		for(let i = 0; i < 16; i++) this.data[i] = r[i];
 	}
 }
