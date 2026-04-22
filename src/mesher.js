@@ -1,12 +1,15 @@
-// Inlined block table (was: import blocks from "./blocks.js")
-// Classic-worker compatible (no ES6 imports) for Brave/Chromium module-worker issues.
+// Inlined copy of src/blocks.js — keep in sync.
+// Classic workers can't ES6-import, so the table lives here too.
 const blocks = [
-	{ name: "air",   transparent: true },
-	{ name: "grass", faces: [2, 2, 1, 2, 2, 0] },
-	{ name: "dirt",  faces: [1, 1, 1, 1, 1, 1] },
-	{ name: "stone", faces: [3, 3, 3, 3, 3, 3] },
-	{ name: "water", faces: [16,16,16,16,16,16], transparent: true },
-	{ name: "sand",  faces: [4, 4, 4, 4, 4, 4] },
+	{ name: "air",         transparent: true },
+	{ name: "alien_grass", faces: [2, 2, 1, 2, 2, 0] },
+	{ name: "alien_soil",  faces: [1, 1, 1, 1, 1, 1] },
+	{ name: "obsidian",    faces: [3, 3, 3, 3, 3, 3] },
+	{ name: "crystal",     faces: [5, 5, 5, 5, 5, 5], emissive: true },
+	{ name: "ash",         faces: [4, 4, 4, 4, 4, 4] },
+	{ name: "acid",        faces: [16,16,16,16,16,16], transparent: true, emissive: true },
+	{ name: "glowmoss",    faces: [7, 7, 1, 7, 7, 6], emissive: true },
+	{ name: "fungus",      faces: [8, 8, 8, 8, 8, 8], emissive: true },
 ];
 
 let chunks = null;

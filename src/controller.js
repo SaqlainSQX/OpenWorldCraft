@@ -14,9 +14,8 @@ export default class Controller
 		this.keymap = {};
 		this.locked = false;
 		this.movespeed = 4;
-		this.flyspeed = 8;
+		this.sprintspeed = 7;
 		this.jumpspeed = 8;
-		this.flymode = false;
 		this.jumpsound = null;
 		this.soundcooldown = true;
 		
@@ -86,35 +85,28 @@ export default class Controller
 		}
 	}
 	
-	enableFly()
-	{
-		this.flymode = true;
-		this.camera.acc.set(0,0,0);
-		this.camera.vel.set(0,0,0);
-	}
-	
-	disableFly()
-	{
-		this.flymode = false;
-		this.camera.acc.set(0,0,-20);
-	}
-	
 	update(delta)
 	{
-		let movespeed = this.flymode ? this.flyspeed : this.movespeed;
-		
-		if(this.flymode) {
-			if(this.keymap.space) {
-				this.camera.moveUpward(delta * movespeed);
-			}
-			if(this.keymap.shift) {
-				this.camera.moveDownward(delta * movespeed);
-			}
+		let inFluid = this.camera.inFluid;
+
+		// Shift = sprint on land only. Sprint is disabled while swimming.
+		let sprinting = !!this.keymap.shift && !inFluid;
+		let movespeed = sprinting ? this.sprintspeed : this.movespeed;
+		if(inFluid) {
+			movespeed *= 0.6;  // slower horizontal travel in fluid
 		}
-		else {
-			if(this.keymap.space && this.camera.rest.z < 0) {
+
+		if(this.keymap.space) {
+			if(inFluid) {
+				// Swim up: continuous upward acceleration while Space is held.
+				// The constant outpaces the reduced fluid gravity (-5) + drag,
+				// giving a steady ascent rather than an instant jump.
+				this.camera.vel.data[2] += 30 * delta;
+			}
+			else if(this.camera.rest.z < 0) {
+				// Standard jump: impulse on ground contact only.
 				this.camera.accel(new Vector(0, 0, this.jumpspeed), 1);
-				
+
 				if(this.jumpsound && this.soundcooldown) {
 					this.speaker.playSound(this.jumpsound);
 					this.soundcooldown = false;
@@ -122,7 +114,7 @@ export default class Controller
 				}
 			}
 		}
-		
+
 		if(this.keymap.w) {
 			this.camera.moveForward(delta * movespeed);
 		}

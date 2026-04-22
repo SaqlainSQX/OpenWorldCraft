@@ -107,14 +107,12 @@ export default class Debugger
 	{
 		this.enabled = true;
 		this.dom.style.display = "block";
-		this.controller.enableFly();
 	}
-	
+
 	disable()
 	{
 		this.enabled = false;
 		this.dom.style.display = "none";
-		this.controller.disableFly();
 	}
 	
 	toggle()

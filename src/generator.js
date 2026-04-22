@@ -42,22 +42,31 @@ export default class Generator
 
 	getBlock(x, y, z)
 	{
+		// Block IDs (match src/blocks.js):
+		//   1 alien_grass   2 alien_soil   3 obsidian   4 crystal
+		//   5 ash           6 acid         7 glowmoss   8 fungus
 		let height = Math.floor(16 * this.sample2d(x / 16, y / 16));
-		
+
 		if(z < height / 3 * 2) {
-			return 3;
+			// Deep layer: obsidian with rare crystal veins (second noise channel,
+			// z factored in so veins vary vertically).
+			let vein = this.sample2d(x / 3 + z * 0.37, y / 3 + z * 0.71);
+			return vein > 0.78 ? 4 : 3;
 		}
 		else if(height <= 8 && z <= height) {
+			// Low-lying terrain near the acid line — expose ash beaches.
 			return 5;
 		}
 		else if(z < height) {
 			return 2;
 		}
 		else if(z === height) {
-			return 1;
+			// Surface: mostly alien grass, with glowmoss patches in clusters.
+			let moss = this.sample2d(x / 6 + 101, y / 6 + 73);
+			return moss > 0.72 ? 7 : 1;
 		}
 		else if(z < 8) {
-			return 4;
+			return 6;
 		}
 		else {
 			return 0;

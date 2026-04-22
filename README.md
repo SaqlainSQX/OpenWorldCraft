@@ -14,8 +14,9 @@ Requires only `python3` for the static dev server.
 ## Controls
 
 - **Mouse click** — lock pointer / look around
-- **W / A / S / D** — move
-- **Space** — jump
+- **W / A / S / D** — walk
+- **Shift** — sprint (on land only)
+- **Space** — jump on land / swim up in acid pools
 - **Left click** — break block
 - **F3** — debug overlay
 - **Esc** — release pointer

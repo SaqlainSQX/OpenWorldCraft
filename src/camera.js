@@ -8,7 +8,10 @@ export default class Camera extends Body
 	constructor(map, fovy, aspect, near, far, x, y, z, rx, rz)
 	{
 		super(map, x, y, z, rx, rz, [-0.25, -0.25, -1.75], [+0.25, +0.25, +0.25]);
-		
+
+		// Gravity: -20 units/s^2 along -Z. Applied every frame via Body.update().
+		this.acc.set(0, 0, -20);
+
 		this.fovy = fovy;
 		this.aspect = aspect;
 		this.near = near;

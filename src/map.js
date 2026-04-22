@@ -1,5 +1,9 @@
 import Chunk from "./chunk.js";
 
+// Block IDs that behave as fluids: no collision, but cause buoyancy & drag.
+// Keep this in sync with src/blocks.js.
+const FLUID_IDS = new Set([6]);  // acid
+
 export default class Map
 {
 	constructor(display, server)
@@ -90,6 +94,17 @@ export default class Map
 		let chunk = this.getChunk(cx, cy);
 
 		return chunk ? chunk.getBlock(x - cx * 16, y - cy * 16, z) : 0;
+	}
+
+	isFluid(x, y, z)
+	{
+		return FLUID_IDS.has(this.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
+	}
+
+	isSolid(x, y, z)
+	{
+		let b = this.getBlock(x, y, z);
+		return b > 0 && !FLUID_IDS.has(b);
 	}
 
 	setBlock(x, y, z, b, pushToServer = true)
@@ -256,7 +271,7 @@ export default class Map
 			for(let x = xs; x !== xe; x += step[0]) {
 				for(let y = ys; y !== ye; y += step[1]) {
 					for(let z = zs; z !== ze; z += step[2]) {
-						if(this.getBlock(x, y, z) > 0) {
+						if(this.isSolid(x, y, z)) {
 							let offs = way / len * vec[axis];
 
 							return {axis, offs, step: step[axis]};
