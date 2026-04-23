@@ -15,6 +15,9 @@ import Speaker from "./speaker.js";
 import Mob from "./mob.js";
 import Hotbar from "./hotbar.js";
 import ShadowMap from "./shadowmap.js";
+import LightManager from "./lights.js";
+import PostProcessor from "./postprocessor.js";
+import ParticleSystem from "./particles.js";
 
 let display = new Display();
 
@@ -84,6 +87,9 @@ server.onSetPlayerPos = (id, x, y, z, rx, rz) => {
 
 let sky = new Sky(display);
 let shadowMap = new ShadowMap(display, 1024);
+let lightManager = new LightManager();
+let postProcessor = new PostProcessor(display);
+let particles = new ParticleSystem(display);
 
 display.onframe = () =>
 {
@@ -126,12 +132,26 @@ display.onframe = () =>
 	shadowMap.update(camera, sun);
 	shadowMap.render(shader => map.drawDepth(camera, shader));
 
+	// Collect nearby emissive blocks into an 8-light uniform set for the
+	// main chunk pass.
+	lightManager.update(camera, map, 2);
+
+	// Render the world into an offscreen RGBA8 FBO so the post-process
+	// stage can run bloom + tone mapping over the whole scene.
+	postProcessor.beginScene();
+
 	sky.draw(camera);
-	map.draw(camera, sun, shadowMap);
+	map.draw(camera, sun, shadowMap, lightManager);
 
 	for(let id in players) {
 		players[id].draw(camera, sun);
 	}
 
+	// Ambient particles — drawn into the scene FBO so bloom picks them up.
+	particles.update(1/60, camera);
+	particles.draw(camera);
+
 	picker.draw(camera);
+
+	postProcessor.endSceneAndComposite();
 };

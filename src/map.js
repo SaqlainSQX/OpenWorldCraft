@@ -142,7 +142,7 @@ export default class Map
 		this.forEachChunk(chunk => chunk.update());
 	}
 
-	draw(camera, sun, shadowMap)
+	draw(camera, sun, shadowMap, lightManager)
 	{
 		// Distance-cull: only draw chunks within DRAW_RADIUS of the camera's
 		// chunk position. Previously every loaded chunk was drawn every frame,
@@ -156,13 +156,13 @@ export default class Map
 			let dx = chunk.cx - ccx;
 			let dy = chunk.cy - ccy;
 			if(dx * dx + dy * dy > R2) return;
-			chunk.draw(camera, sun, false, shadowMap);
+			chunk.draw(camera, sun, false, shadowMap, lightManager);
 		});
 		this.forEachChunk(chunk => {
 			let dx = chunk.cx - ccx;
 			let dy = chunk.cy - ccy;
 			if(dx * dx + dy * dy > R2) return;
-			chunk.draw(camera, sun, true, shadowMap);
+			chunk.draw(camera, sun, true, shadowMap, lightManager);
 		});
 	}
 
