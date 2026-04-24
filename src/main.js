@@ -18,6 +18,9 @@ import ShadowMap from "./shadowmap.js";
 import LightManager from "./lights.js";
 import PostProcessor from "./postprocessor.js";
 import ParticleSystem from "./particles.js";
+import HostileMob from "./hostilemob.js";
+import {groundZ} from "./astar.js";
+import {loadMobPolicy, predictAction} from "./mob_policy.js";
 
 let display = new Display();
 
@@ -44,6 +47,54 @@ dbg.appendToBody();
 
 let hotbar = new Hotbar(controller);
 hotbar.appendToBody();
+
+// --- Player HP HUD ---------------------------------------------------------
+
+const PLAYER_MAX_HP = 5;
+let playerHP = PLAYER_MAX_HP;
+const SPAWN_POS = [8, 8, 40];
+
+let hpHud = document.createElement("div");
+hpHud.style.cssText = [
+	"position: fixed",
+	"top: 16px",
+	"right: 16px",
+	"padding: 6px 12px",
+	"font-family: monospace",
+	"font-size: 18px",
+	"color: #fff",
+	"background: rgba(15, 5, 25, 0.65)",
+	"border: 1px solid rgba(180, 100, 220, 0.5)",
+	"border-radius: 6px",
+	"z-index: 100",
+	"text-shadow: 1px 1px 0 #000",
+].join(";");
+document.body.appendChild(hpHud);
+
+function renderHP() {
+	hpHud.textContent = `HP: ${"♥".repeat(Math.max(0, playerHP))}${"·".repeat(PLAYER_MAX_HP - Math.max(0, playerHP))}`;
+}
+renderHP();
+
+function flashHP() {
+	hpHud.style.background = "rgba(200, 60, 100, 0.75)";
+	setTimeout(() => hpHud.style.background = "rgba(15, 5, 25, 0.65)", 180);
+}
+
+function damagePlayer(n) {
+	playerHP = Math.max(0, playerHP - n);
+	renderHP();
+	flashHP();
+	if(playerHP <= 0) {
+		// Respawn: teleport to spawn, restore HP, zero velocity.
+		camera.pos.data[0] = SPAWN_POS[0];
+		camera.pos.data[1] = SPAWN_POS[1];
+		camera.pos.data[2] = SPAWN_POS[2];
+		camera.vel.set(0, 0, 0);
+		playerHP = PLAYER_MAX_HP;
+		renderHP();
+	}
+}
 
 let sun = new Vector(0,0,1);
 
@@ -90,6 +141,44 @@ let shadowMap = new ShadowMap(display, 1024);
 let lightManager = new LightManager();
 let postProcessor = new PostProcessor(display);
 let particles = new ParticleSystem(display);
+
+// --- Hostile mobs ----------------------------------------------------------
+
+const MAX_MOBS = 3;
+const SPAWN_RADIUS_MIN = 14;
+const SPAWN_RADIUS_MAX = 22;
+
+let hostileMobs = [];
+let lastPlayerAttackTime = -999;
+
+// Controller reads this array to decide which mob the player is aiming at.
+controller.hostileMobs = hostileMobs;
+controller.onMobHit = () => { lastPlayerAttackTime = performance.now(); };
+
+let _spawnAttempts = 0;
+function spawnOneMob()
+{
+	_spawnAttempts++;
+	let angle = Math.random() * 2 * Math.PI;
+	let r = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
+	let sx = Math.floor(camera.pos.x + Math.cos(angle) * r);
+	let sy = Math.floor(camera.pos.y + Math.sin(angle) * r);
+	let gz = groundZ(map, sx, sy);
+	if(gz < 0) {
+		if(_spawnAttempts % 120 === 1) console.log("[mob] spawn skipped — no ground at", sx, sy);
+		return false;
+	}
+
+	console.log("[mob] spawning at", sx, sy, "ground z", gz, "— total now", hostileMobs.length + 1);
+	let m = new HostileMob(map, model, sx + 0.5, sy + 0.5, gz + 1.75);
+	m.onAttackPlayer = (dmg) => damagePlayer(dmg);
+	m.policy = predictAction;
+	hostileMobs.push(m);
+	return true;
+}
+
+// Kick off policy load early so by the time a mob spawns, inference is ready.
+loadMobPolicy();
 
 display.onframe = () =>
 {
@@ -145,6 +234,23 @@ display.onframe = () =>
 
 	for(let id in players) {
 		players[id].draw(camera, sun);
+	}
+
+	// Hostile mobs — keep MAX_MOBS alive; update/draw each, drop any that
+	// fully dissolved.
+	if(hostileMobs.length < MAX_MOBS) {
+		spawnOneMob();
+	}
+	let sinceAttack = (performance.now() - lastPlayerAttackTime) / 1000;
+	for(let i = hostileMobs.length - 1; i >= 0; i--) {
+		let mob = hostileMobs[i];
+		mob.update(1/60, camera, sinceAttack);
+		if(mob.removed) {
+			hostileMobs.splice(i, 1);
+		}
+		else {
+			mob.draw(camera, sun);
+		}
 	}
 
 	// Ambient particles — drawn into the scene FBO so bloom picks them up.

@@ -76,6 +76,34 @@ export default class Controller
 		this.heldBlock = this.hotbar[slot];
 	}
 
+	// Returns true if any mob was in a ~25° cone of the camera's forward
+	// vector within 6 units — the closest such mob takes damage. Used by the
+	// left-click handler so combat takes priority over block-break.
+	_tryHitMob()
+	{
+		let mobs = this.hostileMobs;
+		if(!mobs || mobs.length === 0) return false;
+
+		let best = null;
+		let bestDist = Infinity;
+		let f = this.camera.lookat;
+		for(let i = 0; i < mobs.length; i++) {
+			let mob = mobs[i];
+			if(mob.dead) continue;
+			let dx = mob.pos.x - this.camera.pos.x;
+			let dy = mob.pos.y - this.camera.pos.y;
+			let dz = mob.pos.z - this.camera.pos.z;
+			let d = Math.hypot(dx, dy, dz);
+			if(d > 6) continue;
+			let alignment = (dx * f.x + dy * f.y + dz * f.z) / (d || 1);
+			if(alignment < 0.9) continue;
+			if(d < bestDist) { bestDist = d; best = mob; }
+		}
+		if(!best) return false;
+		best.takeDamage(1);
+		return true;
+	}
+
 	wheel(e)
 	{
 		// Only cycle when the game has input focus (pointer locked).
@@ -99,13 +127,19 @@ export default class Controller
 		this.speaker.activate();
 
 		if(this.locked) {
-			if(e.button === 0 && this.picker.hasHit) {
-				// Break: remove the targeted block and bank one unit of its
-				// type if the inventory has a slot for it.
-				let broken = this.map.getBlock(...this.picker.hitVox);
-				this.map.setBlock(...this.picker.hitVox, 0);
-				if(broken > 0 && this.inventory[broken] !== undefined) {
-					this.inventory[broken] += 1;
+			if(e.button === 0) {
+				// Left click: first check whether we're aiming at the hostile
+				// mob (distance + angle), otherwise fall through to breaking
+				// the voxel picker is hitting.
+				if(this._tryHitMob()) {
+					if(this.onMobHit) this.onMobHit();
+				}
+				else if(this.picker.hasHit) {
+					let broken = this.map.getBlock(...this.picker.hitVox);
+					this.map.setBlock(...this.picker.hitVox, 0);
+					if(broken > 0 && this.inventory[broken] !== undefined) {
+						this.inventory[broken] += 1;
+					}
 				}
 			}
 			else if(e.button === 2 && this.picker.hasHit && this.heldBlock > 0) {
