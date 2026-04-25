@@ -13,8 +13,8 @@ export default class Controller
 		this.map = map;
 		this.keymap = {};
 		this.locked = false;
-		this.movespeed = 4;
-		this.sprintspeed = 7;
+		this.movespeed = 2;
+		this.sprintspeed = 3.5;
 		this.jumpspeed = 8;
 		this.jumpsound = null;
 		this.soundcooldown = true;

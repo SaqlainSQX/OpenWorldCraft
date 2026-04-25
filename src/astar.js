@@ -10,15 +10,20 @@
 
 const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 
-// Highest z such that a 2-block-tall mob can stand at (x, y). -1 if nowhere.
+// Highest z such that a ~3-block-tall mob can stand at (x, y). -1 if nowhere.
+// Additionally refuses to stand on — or with head/body inside — any fluid,
+// so mobs never wade into acid/water surfaces.
 export function groundZ(map, x, y)
 {
 	// Walk down from a safe upper bound. Surface terrain max is ~16; plus
 	// a margin for future tall structures.
 	for(let z = 40; z > 0; z--) {
-		if(map.isSolid(x, y, z - 1) && !map.isSolid(x, y, z) && !map.isSolid(x, y, z + 1)) {
-			return z;
-		}
+		if(!map.isSolid(x, y, z - 1)) continue;
+		if(map.isFluid(x, y, z - 1)) continue;           // ground block itself isn't fluid
+		if(map.isSolid(x, y, z) || map.isFluid(x, y, z)) continue;         // feet clear
+		if(map.isSolid(x, y, z + 1) || map.isFluid(x, y, z + 1)) continue; // body clear
+		if(map.isSolid(x, y, z + 2) || map.isFluid(x, y, z + 2)) continue; // head clear
+		return z;
 	}
 	return -1;
 }

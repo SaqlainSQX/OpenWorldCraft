@@ -50,7 +50,7 @@ hotbar.appendToBody();
 
 // --- Player HP HUD ---------------------------------------------------------
 
-const PLAYER_MAX_HP = 5;
+const PLAYER_MAX_HP = 10;
 let playerHP = PLAYER_MAX_HP;
 const SPAWN_POS = [8, 8, 40];
 
@@ -114,6 +114,57 @@ model.addCube([ 0.25,-0.125, -1.0], [0.25,0.25,0.75], [40,12], [4,4,12], 64, 2);
 model.addCube([-0.25,-0.125,-1.75], [0.25,0.25,0.75], [ 0,20], [4,4,12], 64, 0); // left leg
 model.addCube([    0,-0.125,-1.75], [0.25,0.25,0.75], [20,20], [4,4,12], 64, 0); // right leg
 
+// --- Monster model for hostile mobs ---------------------------------------
+//
+// Distinctly non-humanoid: a low-slung quadruped with a bulbous head, a
+// jutting snout and two curved horns. The skin is a procedural magenta-on-
+// near-black noise texture generated into a canvas at load time so no new
+// asset file is needed; every face samples the same tileable patch.
+
+function makeMonsterSkinURL()
+{
+	let c = document.createElement("canvas");
+	c.width = 64; c.height = 64;
+	let g = c.getContext("2d");
+	g.fillStyle = "#1a0322";
+	g.fillRect(0, 0, 64, 64);
+	for(let i = 0; i < 900; i++) {
+		let x = Math.floor(Math.random() * 64);
+		let y = Math.floor(Math.random() * 64);
+		let r = Math.random();
+		g.fillStyle = r < 0.55 ? "#2b0838" : r < 0.85 ? "#45104a" : "#6a1c6a";
+		g.fillRect(x, y, 1, 1);
+	}
+	// A few bright emissive specks — reads as pinpoint eyes / bioluminescent pores.
+	for(let i = 0; i < 12; i++) {
+		let x = Math.floor(Math.random() * 64);
+		let y = Math.floor(Math.random() * 64);
+		g.fillStyle = "#ff55cc";
+		g.fillRect(x, y, 2, 2);
+	}
+	return c.toDataURL();
+}
+
+let monsterModel = new Model(
+	display,
+	new Texture(display, makeMonsterSkinURL()),
+	[[0, -0.3, 0], [0, 0.3, 0], [0, 0, 0]]
+);
+
+// All geometry on bone 0 (static) — mob doesn't need limb animation,
+// orientation is driven by body rz.
+// Lowest z = -1.8 matches HostileMob's boxmin.z so feet sit on the ground.
+monsterModel.addCube([-0.6, -0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // front-left leg
+monsterModel.addCube([ 0.25,-0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // front-right leg
+monsterModel.addCube([-0.6,  0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // back-left  leg
+monsterModel.addCube([ 0.25, 0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // back-right leg
+monsterModel.addCube([-0.75,-0.65,-1.1 ], [1.5, 1.1, 0.8 ], [ 0, 0], [12,8,6], 64, 0); // body
+monsterModel.addCube([-0.55,-1.2, -0.35], [1.1, 0.6, 0.7 ], [ 0, 0], [10,4,6], 64, 1); // head  (bone 1)
+monsterModel.addCube([-0.35,-1.55,-0.25], [0.7, 0.4, 0.35], [ 0, 0], [6, 4,4], 64, 1); // snout (bone 1)
+monsterModel.addCube([-0.5, -0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // left horn  (bone 1)
+monsterModel.addCube([ 0.28,-0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // right horn (bone 1)
+monsterModel.addCube([-0.15, 0.45,-0.9 ], [0.3, 0.55,0.28], [ 0, 0], [2, 4,2], 64, 0); // tail stub
+
 let players = {};
 
 server.onAddPlayer = id => {
@@ -145,8 +196,8 @@ let particles = new ParticleSystem(display);
 // --- Hostile mobs ----------------------------------------------------------
 
 const MAX_MOBS = 3;
-const SPAWN_RADIUS_MIN = 14;
-const SPAWN_RADIUS_MAX = 22;
+const SPAWN_RADIUS_MIN = 6;
+const SPAWN_RADIUS_MAX = 14;
 
 let hostileMobs = [];
 let lastPlayerAttackTime = -999;
@@ -155,26 +206,73 @@ let lastPlayerAttackTime = -999;
 controller.hostileMobs = hostileMobs;
 controller.onMobHit = () => { lastPlayerAttackTime = performance.now(); };
 
+// On-screen mob HUD so we can diagnose spawns without scrolling the console.
+let mobHud = document.createElement("div");
+mobHud.style.cssText = [
+	"position: fixed",
+	"left: 16px",
+	"bottom: 80px",
+	"padding: 4px 10px",
+	"font-family: monospace",
+	"font-size: 13px",
+	"color: #ffaaee",
+	"background: rgba(20, 5, 30, 0.65)",
+	"border: 1px solid rgba(180, 100, 220, 0.4)",
+	"border-radius: 4px",
+	"z-index: 100",
+].join(";");
+document.body.appendChild(mobHud);
+
 let _spawnAttempts = 0;
+let _spawnSkipped  = 0;
+let _lastSpawnInfo = "—";
+let _forcedSpawnDone = false;
+
+// Deterministic "greeter" mob — drops in right in front of the player's
+// spawn point the first frame a walkable cell is found there, so there's
+// always at least one visible monster without waiting on the RNG.
+function trySpawnGreeterMob()
+{
+	if(_forcedSpawnDone) return;
+	for(let dx = 3; dx <= 6; dx++) {
+		let sx = Math.floor(camera.pos.x) + dx;
+		let sy = Math.floor(camera.pos.y);
+		let gz = groundZ(map, sx, sy);
+		if(gz < 0) continue;
+		let m = new HostileMob(map, monsterModel, sx + 0.5, sy + 0.5, gz + 2.0);
+		m.onAttackPlayer = (d) => damagePlayer(d);
+		m.policy = predictAction;
+		hostileMobs.push(m);
+		_forcedSpawnDone = true;
+		_lastSpawnInfo = `greeter@(${sx},${sy},${gz})`;
+		console.log("[mob] greeter spawned", _lastSpawnInfo);
+		return;
+	}
+}
+
 function spawnOneMob()
 {
 	_spawnAttempts++;
-	let angle = Math.random() * 2 * Math.PI;
-	let r = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
-	let sx = Math.floor(camera.pos.x + Math.cos(angle) * r);
-	let sy = Math.floor(camera.pos.y + Math.sin(angle) * r);
-	let gz = groundZ(map, sx, sy);
-	if(gz < 0) {
-		if(_spawnAttempts % 120 === 1) console.log("[mob] spawn skipped — no ground at", sx, sy);
-		return false;
-	}
 
-	console.log("[mob] spawning at", sx, sy, "ground z", gz, "— total now", hostileMobs.length + 1);
-	let m = new HostileMob(map, model, sx + 0.5, sy + 0.5, gz + 1.75);
-	m.onAttackPlayer = (dmg) => damagePlayer(dmg);
-	m.policy = predictAction;
-	hostileMobs.push(m);
-	return true;
+	// Try several offsets within the guaranteed-loaded 5×5 chunk window.
+	for(let tries = 0; tries < 12; tries++) {
+		let angle = Math.random() * 2 * Math.PI;
+		let r = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
+		let sx = Math.floor(camera.pos.x + Math.cos(angle) * r);
+		let sy = Math.floor(camera.pos.y + Math.sin(angle) * r);
+		let gz = groundZ(map, sx, sy);
+		if(gz < 0) continue;
+
+		let m = new HostileMob(map, monsterModel, sx + 0.5, sy + 0.5, gz + 2.0);
+		m.onAttackPlayer = (dmg) => damagePlayer(dmg);
+		m.policy = predictAction;
+		hostileMobs.push(m);
+		_lastSpawnInfo = `@(${sx},${sy},${gz})`;
+		console.log("[mob] spawned", _lastSpawnInfo, "total", hostileMobs.length);
+		return true;
+	}
+	_spawnSkipped++;
+	return false;
 }
 
 // Kick off policy load early so by the time a mob spawns, inference is ready.
@@ -238,6 +336,7 @@ display.onframe = () =>
 
 	// Hostile mobs — keep MAX_MOBS alive; update/draw each, drop any that
 	// fully dissolved.
+	trySpawnGreeterMob();
 	if(hostileMobs.length < MAX_MOBS) {
 		spawnOneMob();
 	}
@@ -252,6 +351,8 @@ display.onframe = () =>
 			mob.draw(camera, sun);
 		}
 	}
+
+	mobHud.textContent = `MOBS: ${hostileMobs.length}/${MAX_MOBS}  tries:${_spawnAttempts}  skipped:${_spawnSkipped}  last:${_lastSpawnInfo}`;
 
 	// Ambient particles — drawn into the scene FBO so bloom picks them up.
 	particles.update(1/60, camera);

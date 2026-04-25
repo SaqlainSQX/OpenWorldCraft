@@ -16,33 +16,41 @@ import {findPath, groundZ} from "./astar.js";
 // An ML policy (loaded elsewhere) can bias transitions between CHASE, FLEE
 // and ATTACK; fallback rules here keep the mob working even with no policy.
 
-const MAX_HP            = 3;
-const ATTACK_RANGE      = 2.2;
-const AGGRO_RANGE       = 22;
-const FLEE_HP_FRACTION  = 0.4;
-const REPLAN_INTERVAL   = 0.8;   // seconds between A* replans
-const CHASE_SPEED       = 3.0;
-const FLEE_SPEED        = 4.0;
-const PATROL_SPEED      = 1.5;
-const ATTACK_COOLDOWN   = 1.5;
-const DISSOLVE_SPEED    = 0.6;   // per second
+const MAX_HP              = 3;
+const ATTACK_RANGE        = 2.2;
+const AGGRO_RANGE         = 22;
+const FLEE_HP_FRACTION    = 0.4;
+const REPLAN_INTERVAL     = 0.8;   // seconds between A* replans (combat)
+const PATROL_REPLAN_MIN   = 2.5;   // seconds before picking a new wander target
+const PATROL_REPLAN_MAX   = 5.0;
+const PATROL_WANDER_MIN   = 6;     // cells away for wander target
+const PATROL_WANDER_MAX   = 14;
+const CHASE_SPEED         = 1.6;
+const FLEE_SPEED          = 2.2;
+const PATROL_SPEED        = 1.1;
+const ATTACK_COOLDOWN     = 1.5;
+const ATTACK_DAMAGE       = 2;
+const DISSOLVE_SPEED      = 0.6;   // per second
+const HEAD_BOB_DEG        = 14;    // head sway amplitude while moving
+const HEAD_BOB_FREQ       = 7.0;   // sway cycles per second at full speed
 
 export default class HostileMob extends Body
 {
 	constructor(map, model, x, y, z)
 	{
-		super(map, x, y, z, 0, 0, [-0.3, -0.3, -1.0], [+0.3, +0.3, +0.5]);
+		super(map, x, y, z, 0, 0, [-0.55, -0.55, -1.8], [+0.55, +0.55, +0.9]);
 
 		this.model = model;
 		this.bones = model.roots.map(root => new Bone(...root));
 
 		this.hp = MAX_HP;
-		this.state = "IDLE";
+		this.state = "PATROL";     // spawn roaming, not idle
 		this.path = null;
 		this.pathIdx = 0;
 		this.replanTimer = 0;
 		this.attackCooldown = 0;
 		this.wanderTarget = null;
+		this.walkPhase = 0;        // advances while moving, drives head bob
 
 		this.dead = false;
 		this.dissolve = 0;
@@ -115,8 +123,17 @@ export default class HostileMob extends Body
 			case "CHASE":  this._chase (delta, player, dx, dy, dist); break;
 			case "FLEE":   this._flee  (delta, player, dx, dy, dist); break;
 			case "ATTACK": this._attack(delta, player, dx, dy, dist); break;
+			case "IDLE":   // no IDLE in practice — wander instead
 			case "PATROL": this._patrol(delta); break;
-			// IDLE / DEAD: no motion
+		}
+
+		// Head bob — frequency & amplitude scale with horizontal speed so the
+		// mob looks alive while moving and still while attacking.
+		let hspeed = Math.hypot(this.vel.data[0], this.vel.data[1]);
+		let bobScale = Math.min(hspeed / CHASE_SPEED, 1.0);
+		this.walkPhase += delta * HEAD_BOB_FREQ * (0.5 + bobScale);
+		if(this.bones.length > 0) {
+			this.bones[0].rx = Math.sin(this.walkPhase) * HEAD_BOB_DEG * bobScale;
 		}
 
 		super.update(delta);
@@ -183,15 +200,16 @@ export default class HostileMob extends Body
 		this.rz = Math.atan2(dx, dy) * 180 / Math.PI;
 		if(this.attackCooldown <= 0) {
 			this.attackCooldown = ATTACK_COOLDOWN;
-			if(this.onAttackPlayer) this.onAttackPlayer(1);
+			if(this.onAttackPlayer) this.onAttackPlayer(ATTACK_DAMAGE);
 		}
 	}
 
 	_patrol(delta)
 	{
-		if(!this.wanderTarget || this.replanTimer <= 0) {
+		let reached = this.path && this.pathIdx >= this.path.length;
+		if(!this.wanderTarget || this.replanTimer <= 0 || reached) {
 			let angle = Math.random() * 2 * Math.PI;
-			let r = 4 + Math.random() * 6;
+			let r = PATROL_WANDER_MIN + Math.random() * (PATROL_WANDER_MAX - PATROL_WANDER_MIN);
 			this.wanderTarget = {
 				x: Math.floor(this.pos.x + Math.cos(angle) * r),
 				y: Math.floor(this.pos.y + Math.sin(angle) * r),
@@ -200,7 +218,7 @@ export default class HostileMob extends Body
 				Math.floor(this.pos.x), Math.floor(this.pos.y),
 				this.wanderTarget.x, this.wanderTarget.y,
 			);
-			this.replanTimer = REPLAN_INTERVAL * 3;
+			this.replanTimer = PATROL_REPLAN_MIN + Math.random() * (PATROL_REPLAN_MAX - PATROL_REPLAN_MIN);
 		}
 		this._followPath(delta, PATROL_SPEED);
 	}
