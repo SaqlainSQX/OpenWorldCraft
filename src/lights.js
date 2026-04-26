@@ -57,10 +57,10 @@ export default class LightManager
 			this.flashDir[0] = dir.x / len;
 			this.flashDir[1] = dir.y / len;
 			this.flashDir[2] = dir.z / len;
-			// Warm yellow-white beam — 1.5× the previous intensity.
-			this.flashColor[0] = 2.40;
-			this.flashColor[1] = 2.175;
-			this.flashColor[2] = 1.575;
+			// Warm yellow-white beam — bumped 60% over the previous values.
+			this.flashColor[0] = 3.84;
+			this.flashColor[1] = 3.48;
+			this.flashColor[2] = 2.52;
 		}
 		else {
 			this.flashColor[0] = this.flashColor[1] = this.flashColor[2] = 0;

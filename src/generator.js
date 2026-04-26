@@ -119,6 +119,37 @@ export default class Generator
 		return tunnel > 0.78;
 	}
 
+	// Sparse above-ground rock formations — outcrops/arches that rise above
+	// the local surface. A 2D "region mask" (sample2d on a coarse grid) gates
+	// where formations may appear; inside a region a 3D blob noise decides
+	// rock vs air, with the threshold ramped up by altitude so blobs taper
+	// to a peak. The same cave-tunnel noise then hollows them out, producing
+	// natural arches and surface caves rather than solid lumps.
+	//
+	// Returns block id (3 obsidian / 4 crystal vein) or 0 for empty space.
+	getSurfaceRock(x, y, z, height)
+	{
+		let zAbove = z - height;
+		if(zAbove < 1 || zAbove > 18) return 0;
+
+		let region = this.sample2d(x / 24 + 401, y / 24 + 119);
+		if(region < 0.78) return 0;
+
+		// Blob mask: easier to fill near the base, harder near the top.
+		let blobThresh = 0.55 + (zAbove / 18) * 0.30;
+		let blob = this.sample3d(x / 7 + 33, y / 7 + 81, z / 7);
+		if(blob < blobThresh) return 0;
+
+		// Hollow with a tunnel noise — same field flavour the underground
+		// caves use so above-ground caves feel related.
+		let cave = this.sample3d(x / 9 + 51, y / 9 + 23, z / 5 + 7);
+		if(cave > 0.74) return 0;
+
+		// Crystal veins inside surface rock for some visual variety.
+		let vein = this.sample2d(x / 3 + z * 0.37, y / 3 + z * 0.71);
+		return vein > 0.82 ? 4 : 3;
+	}
+
 	// Is a tree rooted at the grass column (rx, ry)?
 	// Trees only spawn on grass (not glowmoss, not ash), above the acid line,
 	// and at sparse noise thresholds.
@@ -199,10 +230,12 @@ export default class Generator
 		//   9 alien_wood   10 glow_leaves
 		let height = this.getHeight(x, y);
 
-		// Above surface: trees, acid, or open air.
+		// Above surface: trees, acid, surface rock formations, or open air.
 		if(z > height) {
 			if(z < ACID_LINE) return 6;          // acid fills lows
-			return this.getTreeBlock(x, y, z);
+			let tree = this.getTreeBlock(x, y, z);
+			if(tree !== 0) return tree;
+			return this.getSurfaceRock(x, y, z, height);
 		}
 
 		// Top surface block — ash for sub-acid columns, otherwise
