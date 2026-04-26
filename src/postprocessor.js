@@ -71,6 +71,9 @@ const compositeFrag = `
 	uniform sampler2D bloom;
 	uniform float bloomStrength;
 	uniform float exposure;
+	uniform float uUnderwater;   // 0 above water, 1 fully submerged
+	uniform float uDrowning;     // 0..1, rises as drowning progresses
+	uniform float uTime;
 	varying mediump vec2 vUV;
 
 	// ACES filmic approximation — a classic HDR->LDR tone map.
@@ -84,10 +87,37 @@ const compositeFrag = `
 	}
 
 	void main() {
-		vec3 s = texture2D(scene, vUV).rgb;
-		vec3 b = texture2D(bloom, vUV).rgb;
+		// Underwater UV wobble — small sin-based ripple in screen space, only
+		// active when submerged so dry rendering stays sharp.
+		vec2 uv = vUV;
+		if(uUnderwater > 0.0) {
+			float w = uUnderwater;
+			uv.x += sin(uv.y * 30.0 + uTime * 2.0) * 0.0035 * w;
+			uv.y += cos(uv.x * 30.0 + uTime * 1.7) * 0.0035 * w;
+		}
+
+		vec3 s = texture2D(scene, uv).rgb;
+		vec3 b = texture2D(bloom, uv).rgb;
 		vec3 hdr = (s + b * bloomStrength) * exposure;
-		gl_FragColor = vec4(aces(hdr), 1.0);
+		vec3 col = aces(hdr);
+
+		// Underwater tint — biased toward the alien acid/teal palette and
+		// darkens by depth amount.
+		if(uUnderwater > 0.0) {
+			vec3 waterCol = vec3(0.18, 0.52, 0.55);
+			col = mix(col, col * waterCol * 1.4, uUnderwater * 0.55);
+			col *= mix(1.0, 0.78, uUnderwater);
+		}
+
+		// Drowning vignette — pulsing red ring closes in as oxygen runs out.
+		if(uDrowning > 0.0) {
+			float d = distance(vUV, vec2(0.5));
+			float pulse = 0.5 + 0.5 * sin(uTime * 4.0);
+			float vignette = smoothstep(0.25, 0.75, d) * uDrowning * (0.6 + 0.4 * pulse);
+			col = mix(col, vec3(0.7, 0.05, 0.1), vignette);
+		}
+
+		gl_FragColor = vec4(col, 1.0);
 	}
 `;
 
@@ -104,7 +134,17 @@ export default class PostProcessor
 
 		this.w = 0;
 		this.h = 0;
+		this.underwater = 0;
+		this.drowning = 0;
 		this._ensureBuffers();
+	}
+
+	// Set per-frame state that the composite stage reads. Caller passes 0..1
+	// values; the shader handles the visual response.
+	setUnderwater(amount, drowning)
+	{
+		this.underwater = amount;
+		this.drowning = drowning;
 	}
 
 	_makeTex(w, h)
@@ -242,6 +282,9 @@ export default class PostProcessor
 		this.compositeShader.assignTexture("bloom", {tex: this.blurTexB}, 1);
 		this.compositeShader.assignFloat("bloomStrength", 0.3);
 		this.compositeShader.assignFloat("exposure", 1.05);
+		this.compositeShader.assignFloat("uUnderwater", this.underwater);
+		this.compositeShader.assignFloat("uDrowning",   this.drowning);
+		this.compositeShader.assignFloat("uTime", performance.now() * 0.001);
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 
 		gl.enable(gl.DEPTH_TEST);

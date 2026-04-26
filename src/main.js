@@ -92,8 +92,45 @@ function damagePlayer(n) {
 		camera.pos.data[2] = SPAWN_POS[2];
 		camera.vel.set(0, 0, 0);
 		playerHP = PLAYER_MAX_HP;
+		submergedTime = 0;
+		drownDamageAccum = 0;
 		renderHP();
 	}
+}
+
+// --- Drowning -------------------------------------------------------------
+//
+// First 10 s underwater: no damage (grace period). Past that, lose 1 HP
+// every 3 s while still submerged. Surfacing instantly resets both timers,
+// so quick dips are free.
+const DROWN_GRACE_SEC    = 10;
+const DROWN_TICK_SEC     = 3;
+let submergedTime    = 0;
+let drownDamageAccum = 0;
+
+function updateDrowning(delta) {
+	if(camera.inFluid) {
+		submergedTime += delta;
+		if(submergedTime > DROWN_GRACE_SEC) {
+			drownDamageAccum += delta;
+			while(drownDamageAccum >= DROWN_TICK_SEC) {
+				drownDamageAccum -= DROWN_TICK_SEC;
+				damagePlayer(1);
+			}
+		}
+	}
+	else {
+		submergedTime = 0;
+		drownDamageAccum = 0;
+	}
+	// Drowning vignette intensity ramps from 0 at grace start to 1 at the
+	// first damage tick — gives the player a visual warning before HP drops.
+	let warnStart = DROWN_GRACE_SEC - 4;
+	let drowning = 0;
+	if(submergedTime > warnStart) {
+		drowning = Math.min(1.0, (submergedTime - warnStart) / 4.0);
+	}
+	postProcessor.setUnderwater(camera.inFluid ? 1.0 : 0.0, drowning);
 }
 
 let sun = new Vector(0,0,1);
@@ -300,7 +337,8 @@ display.onframe = () =>
 	}
 	
 	controller.update(1/60);
-	
+	updateDrowning(1/60);
+
 	server.setMyPos(camera.pos.x, camera.pos.y, camera.pos.z, camera.rx, camera.rz);
 	
 	camera.aspect = display.getAspect();
