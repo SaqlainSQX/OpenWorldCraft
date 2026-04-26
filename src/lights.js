@@ -40,7 +40,10 @@ export default class LightManager
 		this.flashPos      = new Float32Array(3);
 		this.flashDir      = new Float32Array(3);
 		this.flashColor    = new Float32Array(3);
-		this.flashConeCos  = Math.cos(22 * Math.PI / 180);  // 22° half-angle
+		// Beam radius at a given distance is proportional to tan(half-angle).
+		// 22° → tan ≈ 0.404; doubling that → atan(0.808) ≈ 39° half-angle, so
+		// the beam's circumference at any distance is 2× the original.
+		this.flashConeCos  = Math.cos(39 * Math.PI / 180);
 		this.flashRange    = 28;
 	}
 
@@ -54,10 +57,10 @@ export default class LightManager
 			this.flashDir[0] = dir.x / len;
 			this.flashDir[1] = dir.y / len;
 			this.flashDir[2] = dir.z / len;
-			// Warm yellow-white beam.
-			this.flashColor[0] = 1.6;
-			this.flashColor[1] = 1.45;
-			this.flashColor[2] = 1.05;
+			// Warm yellow-white beam — 1.5× the previous intensity.
+			this.flashColor[0] = 2.40;
+			this.flashColor[1] = 2.175;
+			this.flashColor[2] = 1.575;
 		}
 		else {
 			this.flashColor[0] = this.flashColor[1] = this.flashColor[2] = 0;
