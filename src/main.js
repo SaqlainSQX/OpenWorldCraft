@@ -247,9 +247,12 @@ let particles = new ParticleSystem(display);
 
 // --- Hostile mobs ----------------------------------------------------------
 
-const MAX_MOBS = 3;
-const SPAWN_RADIUS_MIN = 6;
-const SPAWN_RADIUS_MAX = 14;
+const MAX_MOBS = 6;
+const GREETER_COUNT = 3;            // mobs guaranteed in front of player at spawn
+const SPAWN_RADIUS_MIN = 8;
+const SPAWN_RADIUS_MAX = 22;
+const RANDOM_SPAWN_MIN = 8;         // seconds between background spawns (random)
+const RANDOM_SPAWN_MAX = 20;
 
 let hostileMobs = [];
 let lastPlayerAttackTime = -999;
@@ -278,35 +281,61 @@ document.body.appendChild(mobHud);
 let _spawnAttempts = 0;
 let _spawnSkipped  = 0;
 let _lastSpawnInfo = "—";
-let _forcedSpawnDone = false;
+let _greeterSpawnedCount = 0;
+let _randomSpawnTimer = RANDOM_SPAWN_MIN + Math.random() * (RANDOM_SPAWN_MAX - RANDOM_SPAWN_MIN);
 
-// Deterministic "greeter" mob — drops in right in front of the player's
-// spawn point the first frame a walkable cell is found there, so there's
-// always at least one visible monster without waiting on the RNG.
+// Helper that wraps the HostileMob ctor + hook wiring so we don't repeat it.
+function makeMob(sx, sy, gz)
+{
+	let m = new HostileMob(map, monsterModel, sx + 0.5, sy + 0.5, gz + 2.0);
+	m.onAttackPlayer = (d) => damagePlayer(d);
+	m.policy = predictAction;
+	hostileMobs.push(m);
+	_lastSpawnInfo = `@(${sx},${sy},${gz})`;
+	console.log("[mob] spawned", _lastSpawnInfo, "total", hostileMobs.length);
+}
+
+// Deterministic "greeter" trio — drops three mobs in a fan in front of the
+// player as soon as walkable cells are found there. groundZ guarantees each
+// landing cell sits on a solid (non-fluid) block.
 function trySpawnGreeterMob()
 {
-	if(_forcedSpawnDone) return;
-	for(let dx = 3; dx <= 6; dx++) {
-		let sx = Math.floor(camera.pos.x) + dx;
-		let sy = Math.floor(camera.pos.y);
-		let gz = groundZ(map, sx, sy);
-		if(gz < 0) continue;
-		let m = new HostileMob(map, monsterModel, sx + 0.5, sy + 0.5, gz + 2.0);
-		m.onAttackPlayer = (d) => damagePlayer(d);
-		m.policy = predictAction;
-		hostileMobs.push(m);
-		_forcedSpawnDone = true;
-		_lastSpawnInfo = `greeter@(${sx},${sy},${gz})`;
-		console.log("[mob] greeter spawned", _lastSpawnInfo);
-		return;
+	if(_greeterSpawnedCount >= GREETER_COUNT) return;
+
+	// Fan angles: -25°, 0°, +25° (centered on +x), each with its own
+	// distance so they don't stack.
+	let fan = [
+		{ angle: -25 * Math.PI / 180, dist: 5 },
+		{ angle:   0,                  dist: 6 },
+		{ angle: +25 * Math.PI / 180, dist: 5 },
+	];
+	let target = fan[_greeterSpawnedCount];
+
+	// Search outward from the target cell so we still place even if the
+	// exact tile is occupied (e.g. landed on a tree/water).
+	for(let pad = 0; pad <= 4; pad++) {
+		for(let oy = -pad; oy <= pad; oy++) {
+			for(let ox = -pad; ox <= pad; ox++) {
+				if(Math.abs(ox) !== pad && Math.abs(oy) !== pad) continue;
+				let sx = Math.floor(camera.pos.x + Math.cos(target.angle) * target.dist) + ox;
+				let sy = Math.floor(camera.pos.y + Math.sin(target.angle) * target.dist) + oy;
+				let gz = groundZ(map, sx, sy);
+				if(gz < 0) continue;
+				makeMob(sx, sy, gz);
+				_greeterSpawnedCount++;
+				return;
+			}
+		}
 	}
 }
 
+// One random spawn — used for background respawning. groundZ already requires
+// a solid block beneath and a 3-tile air column, so the mob is guaranteed to
+// land on top of a real block (never floating, never in fluid).
 function spawnOneMob()
 {
 	_spawnAttempts++;
 
-	// Try several offsets within the guaranteed-loaded 5×5 chunk window.
 	for(let tries = 0; tries < 12; tries++) {
 		let angle = Math.random() * 2 * Math.PI;
 		let r = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
@@ -315,16 +344,27 @@ function spawnOneMob()
 		let gz = groundZ(map, sx, sy);
 		if(gz < 0) continue;
 
-		let m = new HostileMob(map, monsterModel, sx + 0.5, sy + 0.5, gz + 2.0);
-		m.onAttackPlayer = (dmg) => damagePlayer(dmg);
-		m.policy = predictAction;
-		hostileMobs.push(m);
-		_lastSpawnInfo = `@(${sx},${sy},${gz})`;
-		console.log("[mob] spawned", _lastSpawnInfo, "total", hostileMobs.length);
+		makeMob(sx, sy, gz);
 		return true;
 	}
 	_spawnSkipped++;
 	return false;
+}
+
+// Per-frame: trickle in random spawns on a randomised cooldown so they
+// appear over time rather than instantly filling the cap.
+function tickRandomSpawns(delta)
+{
+	if(hostileMobs.length >= MAX_MOBS) return;
+	_randomSpawnTimer -= delta;
+	if(_randomSpawnTimer > 0) return;
+	if(spawnOneMob()) {
+		_randomSpawnTimer = RANDOM_SPAWN_MIN + Math.random() * (RANDOM_SPAWN_MAX - RANDOM_SPAWN_MIN);
+	}
+	else {
+		// Couldn't find ground (chunks still loading) — retry quickly.
+		_randomSpawnTimer = 1.0;
+	}
 }
 
 // Kick off policy load early so by the time a mob spawns, inference is ready.
@@ -387,12 +427,10 @@ display.onframe = () =>
 		players[id].draw(camera, sun);
 	}
 
-	// Hostile mobs — keep MAX_MOBS alive; update/draw each, drop any that
-	// fully dissolved.
+	// Hostile mobs — three guaranteed greeters at spawn, then random
+	// trickle-spawns up to MAX_MOBS.
 	trySpawnGreeterMob();
-	if(hostileMobs.length < MAX_MOBS) {
-		spawnOneMob();
-	}
+	tickRandomSpawns(1/60);
 	let sinceAttack = (performance.now() - lastPlayerAttackTime) / 1000;
 	for(let i = hostileMobs.length - 1; i >= 0; i--) {
 		let mob = hostileMobs[i];
