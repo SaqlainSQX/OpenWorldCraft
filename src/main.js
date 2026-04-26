@@ -34,7 +34,8 @@ let server = new Server();
 let map = new Map(display, server);
 
 // Spawn high above spawn chunk so the player falls onto terrain on load.
-let camera = new Camera(map, 90, 800/600, 0.1, 1000, 8,8,40, -30,0);
+// Surface heights now reach ~44, so spawn ~80 to give a clean fall.
+let camera = new Camera(map, 90, 800/600, 0.1, 1000, 8,8,80, -30,0);
 
 let picker = new Picker(display, map);
 let speaker = new Speaker();
@@ -52,7 +53,7 @@ hotbar.appendToBody();
 
 const PLAYER_MAX_HP = 10;
 let playerHP = PLAYER_MAX_HP;
-const SPAWN_POS = [8, 8, 40];
+const SPAWN_POS = [8, 8, 80];
 
 let hpHud = document.createElement("div");
 hpHud.style.cssText = [

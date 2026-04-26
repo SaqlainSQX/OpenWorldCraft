@@ -15,9 +15,9 @@ const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 // so mobs never wade into acid/water surfaces.
 export function groundZ(map, x, y)
 {
-	// Walk down from a safe upper bound. Surface terrain max is ~16; plus
-	// a margin for future tall structures.
-	for(let z = 40; z > 0; z--) {
+	// Walk down from a safe upper bound. Surface heights peak around ~44
+	// after the deeper-terrain refactor, plus margin for trees.
+	for(let z = 60; z > 0; z--) {
 		if(!map.isSolid(x, y, z - 1)) continue;
 		if(map.isFluid(x, y, z - 1)) continue;           // ground block itself isn't fluid
 		if(map.isSolid(x, y, z) || map.isFluid(x, y, z)) continue;         // feet clear
