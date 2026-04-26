@@ -18,8 +18,8 @@ export default class Bone
 		this.mat.set();
 		this.mat.translate(this.root.x, this.root.y, this.root.z);
 		this.mat.rotateX(radians(this.rx));
-		this.mat.rotateX(radians(this.ry));
-		this.mat.rotateX(radians(this.rz));
+		this.mat.rotateY(radians(this.ry));
+		this.mat.rotateZ(radians(this.rz));
 		this.mat.translate(-this.root.x, -this.root.y, -this.root.z);
 	}
 }

@@ -33,6 +33,12 @@ const ATTACK_DAMAGE       = 2;
 const DISSOLVE_SPEED      = 0.6;   // per second
 const HEAD_BOB_DEG        = 14;    // head sway amplitude while moving
 const HEAD_BOB_FREQ       = 7.0;   // sway cycles per second at full speed
+const LEG_SWING_DEG       = 32;    // hip rotation amplitude (forward/back)
+const TAIL_WAG_DEG        = 22;    // tail sway amplitude while moving
+const TAIL_IDLE_DEG       = 6;     // gentle resting tail wag when standing still
+const JUMP_SPEED          = 7;     // upward impulse on jump
+const JUMP_COOLDOWN       = 0.55;  // min seconds between successive jumps
+const PATROL_HOP_RATE     = 0.18;  // hops per second while wandering (random)
 
 export default class HostileMob extends Body
 {
@@ -51,6 +57,7 @@ export default class HostileMob extends Body
 		this.attackCooldown = 0;
 		this.wanderTarget = null;
 		this.walkPhase = 0;        // advances while moving, drives head bob
+		this.jumpCooldown = 0;     // ticks down each frame; can't jump while > 0
 
 		this.dead = false;
 		this.dissolve = 0;
@@ -104,6 +111,7 @@ export default class HostileMob extends Body
 
 		this.replanTimer    -= delta;
 		this.attackCooldown -= delta;
+		this.jumpCooldown   -= delta;
 
 		let dx = player.pos.x - this.pos.x;
 		let dy = player.pos.y - this.pos.y;
@@ -127,13 +135,30 @@ export default class HostileMob extends Body
 			case "PATROL": this._patrol(delta); break;
 		}
 
-		// Head bob — frequency & amplitude scale with horizontal speed so the
-		// mob looks alive while moving and still while attacking.
+		this._maybeJump(delta);
+
+		// Procedural skeletal animation. walkPhase advances faster while
+		// moving so the trot rate scales with speed; legs run a diagonal
+		// quadruped trot (FL+BR vs FR+BL π apart), tail wags out of phase
+		// with the head, and a small idle sway keeps the mob alive when
+		// standing still.
 		let hspeed = Math.hypot(this.vel.data[0], this.vel.data[1]);
 		let bobScale = Math.min(hspeed / CHASE_SPEED, 1.0);
 		this.walkPhase += delta * HEAD_BOB_FREQ * (0.5 + bobScale);
-		if(this.bones.length > 0) {
-			this.bones[0].rx = Math.sin(this.walkPhase) * HEAD_BOB_DEG * bobScale;
+
+		let p = this.walkPhase;
+		if(this.bones.length >= 6) {
+			// 0=head, 1=tail, 2=FL, 3=FR, 4=BL, 5=BR
+			this.bones[0].rx = Math.sin(p)            * HEAD_BOB_DEG * bobScale;
+			this.bones[0].rz = Math.sin(p * 0.5)      * 4 * bobScale;
+			this.bones[1].rz = Math.sin(p * 1.3)      * (TAIL_IDLE_DEG + (TAIL_WAG_DEG - TAIL_IDLE_DEG) * bobScale);
+			this.bones[1].rx = Math.sin(p * 1.3 + 1.0) * 6 * bobScale;
+			// Diagonal pairs: FL+BR in phase, FR+BL offset by π.
+			let swing = LEG_SWING_DEG * bobScale;
+			this.bones[2].rx = Math.sin(p)            * swing;          // FL
+			this.bones[5].rx = Math.sin(p)            * swing;          // BR
+			this.bones[3].rx = Math.sin(p + Math.PI)  * swing;          // FR
+			this.bones[4].rx = Math.sin(p + Math.PI)  * swing;          // BL
 		}
 
 		super.update(delta);
@@ -221,6 +246,31 @@ export default class HostileMob extends Body
 			this.replanTimer = PATROL_REPLAN_MIN + Math.random() * (PATROL_REPLAN_MAX - PATROL_REPLAN_MIN);
 		}
 		this._followPath(delta, PATROL_SPEED);
+	}
+
+	// Decide whether to launch a jump this frame. Two triggers:
+	//   • obstacle: bumping a wall/step while trying to move horizontally
+	//     (rest.x or rest.y latched non-zero from last frame's collision)
+	//   • idle hop: random tick during patrol/chase so the mob looks lively
+	// In both cases we require ground contact (rest.z < 0) and the cooldown
+	// to be ready, then write an upward velocity directly.
+	_maybeJump(delta)
+	{
+		if(this.jumpCooldown > 0) return;
+		if(this.rest.z >= 0) return;            // not on ground
+
+		let trying = Math.hypot(this.vel.data[0], this.vel.data[1]) > 0.05;
+		let blocked = trying && (this.rest.x !== 0 || this.rest.y !== 0);
+
+		let randomHop = false;
+		if(this.state === "PATROL" || this.state === "CHASE") {
+			if(Math.random() < PATROL_HOP_RATE * delta) randomHop = true;
+		}
+
+		if(blocked || randomHop) {
+			this.vel.data[2] = JUMP_SPEED;
+			this.jumpCooldown = JUMP_COOLDOWN;
+		}
 	}
 
 	takeDamage(amount)

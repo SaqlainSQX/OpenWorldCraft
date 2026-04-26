@@ -182,25 +182,40 @@ function makeMonsterSkinURL()
 	return c.toDataURL();
 }
 
+// Skeleton:
+//   bone 1 — head cluster (head + snout + horns)   pivot in front of body
+//   bone 2 — tail                                   pivot at body rear
+//   bone 3 — front-left leg
+//   bone 4 — front-right leg
+//   bone 5 — back-left leg
+//   bone 6 — back-right leg
+// Each leg pivots around its hip joint (top of the leg cube). The hostile-
+// mob update writes rx on the leg bones to swing them forward/back through
+// a trot cycle.
 let monsterModel = new Model(
 	display,
 	new Texture(display, makeMonsterSkinURL()),
-	[[0, -0.3, 0], [0, 0.3, 0], [0, 0, 0]]
+	[
+		[ 0,    -0.3,  0   ],   // bone 1 — head pivot
+		[ 0,     0.45,-0.75],   // bone 2 — tail base
+		[-0.425,-0.325,-1.1],   // bone 3 — front-left  hip
+		[ 0.425,-0.325,-1.1],   // bone 4 — front-right hip
+		[-0.425, 0.325,-1.1],   // bone 5 — back-left   hip
+		[ 0.425, 0.325,-1.1],   // bone 6 — back-right  hip
+	]
 );
 
-// All geometry on bone 0 (static) — mob doesn't need limb animation,
-// orientation is driven by body rz.
 // Lowest z = -1.8 matches HostileMob's boxmin.z so feet sit on the ground.
-monsterModel.addCube([-0.6, -0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // front-left leg
-monsterModel.addCube([ 0.25,-0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // front-right leg
-monsterModel.addCube([-0.6,  0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // back-left  leg
-monsterModel.addCube([ 0.25, 0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 0); // back-right leg
-monsterModel.addCube([-0.75,-0.65,-1.1 ], [1.5, 1.1, 0.8 ], [ 0, 0], [12,8,6], 64, 0); // body
-monsterModel.addCube([-0.55,-1.2, -0.35], [1.1, 0.6, 0.7 ], [ 0, 0], [10,4,6], 64, 1); // head  (bone 1)
-monsterModel.addCube([-0.35,-1.55,-0.25], [0.7, 0.4, 0.35], [ 0, 0], [6, 4,4], 64, 1); // snout (bone 1)
-monsterModel.addCube([-0.5, -0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // left horn  (bone 1)
-monsterModel.addCube([ 0.28,-0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // right horn (bone 1)
-monsterModel.addCube([-0.15, 0.45,-0.9 ], [0.3, 0.55,0.28], [ 0, 0], [2, 4,2], 64, 0); // tail stub
+monsterModel.addCube([-0.6, -0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 3); // FL leg (bone 3)
+monsterModel.addCube([ 0.25,-0.5, -1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 4); // FR leg (bone 4)
+monsterModel.addCube([-0.6,  0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 5); // BL leg (bone 5)
+monsterModel.addCube([ 0.25, 0.15,-1.8], [0.35,0.35,0.7 ], [ 0, 0], [4,4, 8], 64, 6); // BR leg (bone 6)
+monsterModel.addCube([-0.75,-0.65,-1.1 ], [1.5, 1.1, 0.8 ], [ 0, 0], [12,8,6], 64, 0); // body (static)
+monsterModel.addCube([-0.55,-1.2, -0.35], [1.1, 0.6, 0.7 ], [ 0, 0], [10,4,6], 64, 1); // head
+monsterModel.addCube([-0.35,-1.55,-0.25], [0.7, 0.4, 0.35], [ 0, 0], [6, 4,4], 64, 1); // snout
+monsterModel.addCube([-0.5, -0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // left horn
+monsterModel.addCube([ 0.28,-0.85, 0.3 ], [0.22,0.22,0.6 ], [ 0, 0], [2, 2,6], 64, 1); // right horn
+monsterModel.addCube([-0.15, 0.45,-0.9 ], [0.3, 0.55,0.28], [ 0, 0], [2, 4,2], 64, 2); // tail (bone 2)
 
 let players = {};
 
