@@ -35,6 +35,12 @@ export default class Controller
 		// pushes camera pos+forward into the LightManager.
 		this.flashlightOn = false;
 
+		// Bow: hold E to charge, release to fire. main.js sets onBowFire to
+		// spawn an arrow with velocity scaled by the charge fraction.
+		this.bowCharging = false;
+		this.bowCharge = 0;        // 0..1, written each frame while charging
+		this.onBowFire = null;     // fn(charge0to1)
+
 		speaker.loadSound("sfx/jump.ogg").then(sound => this.jumpsound = sound);
 
 		window.addEventListener("keydown", e => this.keydown(e));
@@ -78,6 +84,12 @@ export default class Controller
 		if(key === "f") {
 			if(!this._fPrev) this.flashlightOn = !this.flashlightOn;
 			this._fPrev = true;
+		}
+
+		// E starts charging the bow (edge-triggered).
+		if(key === "e" && !this.bowCharging) {
+			this.bowCharging = true;
+			this.bowCharge = 0;
 		}
 	}
 
@@ -132,6 +144,16 @@ export default class Controller
 
 		this.keymap[key] = false;
 		if(key === "f") this._fPrev = false;
+
+		// Releasing E fires the bow if charged enough; sub-threshold releases
+		// (just tapping the key) reset without firing.
+		if(key === "e" && this.bowCharging) {
+			this.bowCharging = false;
+			if(this.bowCharge > 0.15 && this.onBowFire) {
+				this.onBowFire(this.bowCharge);
+			}
+			this.bowCharge = 0;
+		}
 	}
 	
 	mousedown(e)
@@ -151,6 +173,9 @@ export default class Controller
 					this.map.setBlock(...this.picker.hitVox, 0);
 					if(broken > 0 && this.inventory[broken] !== undefined) {
 						this.inventory[broken] += 1;
+					}
+					if(broken > 0 && this.onBlockBroken) {
+						this.onBlockBroken(...this.picker.hitVox, broken);
 					}
 				}
 			}
@@ -194,6 +219,11 @@ export default class Controller
 	
 	update(delta)
 	{
+		// Advance bow charge while E is held. ~0.7s to fully charge.
+		if(this.bowCharging) {
+			this.bowCharge = Math.min(1.0, this.bowCharge + delta * 1.5);
+		}
+
 		let inFluid = this.camera.inFluid;
 
 		// Shift = sprint on land only. Sprint is disabled while swimming.

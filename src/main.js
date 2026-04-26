@@ -18,7 +18,9 @@ import ShadowMap from "./shadowmap.js";
 import LightManager from "./lights.js";
 import PostProcessor from "./postprocessor.js";
 import ParticleSystem from "./particles.js";
+import BurstSystem from "./bursts.js";
 import HostileMob from "./hostilemob.js";
+import Arrow from "./arrow.js";
 import {groundZ} from "./astar.js";
 import {loadMobPolicy, predictAction} from "./mob_policy.js";
 
@@ -82,22 +84,77 @@ function flashHP() {
 	setTimeout(() => hpHud.style.background = "rgba(15, 5, 25, 0.65)", 180);
 }
 
+let dead = false;
+
 function damagePlayer(n) {
+	if(dead) return;                     // ignore further hits during death screen
 	playerHP = Math.max(0, playerHP - n);
 	renderHP();
 	flashHP();
 	if(playerHP <= 0) {
-		// Respawn: teleport to spawn, restore HP, zero velocity.
-		camera.pos.data[0] = SPAWN_POS[0];
-		camera.pos.data[1] = SPAWN_POS[1];
-		camera.pos.data[2] = SPAWN_POS[2];
-		camera.vel.set(0, 0, 0);
-		playerHP = PLAYER_MAX_HP;
-		submergedTime = 0;
-		drownDamageAccum = 0;
-		renderHP();
+		dead = true;
+		document.exitPointerLock?.();    // release the cursor for the respawn click
+		controller.locked = false;
+		deathOverlay.style.display = "flex";
 	}
 }
+
+function respawn() {
+	camera.pos.data[0] = SPAWN_POS[0];
+	camera.pos.data[1] = SPAWN_POS[1];
+	camera.pos.data[2] = SPAWN_POS[2];
+	camera.vel.set(0, 0, 0);
+	playerHP = PLAYER_MAX_HP;
+	submergedTime = 0;
+	drownDamageAccum = 0;
+	renderHP();
+	dead = false;
+	deathOverlay.style.display = "none";
+}
+
+let deathOverlay = document.createElement("div");
+deathOverlay.style.cssText = [
+	"position: fixed",
+	"inset: 0",
+	"background: radial-gradient(ellipse at center, rgba(80, 5, 20, 0.55) 0%, rgba(20, 0, 5, 0.92) 100%)",
+	"display: none",
+	"flex-direction: column",
+	"align-items: center",
+	"justify-content: center",
+	"font-family: 'Courier New', monospace",
+	"z-index: 999",
+	"user-select: none",
+].join(";");
+deathOverlay.innerHTML = `
+	<h1 style="
+		font-size: 88px;
+		letter-spacing: 12px;
+		margin: 0 0 18px;
+		color: #ff5577;
+		text-shadow: 0 0 20px #ff2244, 0 0 50px #aa1133;
+	">YOU DIED</h1>
+	<p style="font-size: 16px; color: #d8a8b0; opacity: 0.85; margin: 0 0 36px;
+	          letter-spacing: 3px;">the alien acid claimed another wanderer</p>
+	<button id="respawnBtn" style="
+		padding: 16px 56px;
+		font-size: 22px;
+		font-family: inherit;
+		color: #ffe0e6;
+		background: rgba(120, 30, 50, 0.55);
+		border: 2px solid #cc3355;
+		border-radius: 8px;
+		cursor: pointer;
+		text-transform: uppercase;
+		letter-spacing: 4px;
+		box-shadow: 0 0 24px rgba(204, 51, 85, 0.5);
+	">Respawn</button>
+`;
+document.body.appendChild(deathOverlay);
+
+document.getElementById("respawnBtn").addEventListener("click", e => {
+	e.stopPropagation();
+	respawn();
+});
 
 // --- Drowning -------------------------------------------------------------
 //
@@ -245,6 +302,136 @@ let shadowMap = new ShadowMap(display, 1024);
 let lightManager = new LightManager();
 let postProcessor = new PostProcessor(display);
 let particles = new ParticleSystem(display);
+let bursts    = new BurstSystem(display);
+
+// Per-block-id dust colour. Roughly matches the block's surface tint so a
+// broken crystal puffs cyan, broken obsidian puffs near-black, etc.
+const BLOCK_DUST_COLOR = {
+	1:  [0.50, 0.85, 0.55],   // alien_grass
+	2:  [0.55, 0.30, 0.55],   // alien_soil
+	3:  [0.20, 0.10, 0.25],   // obsidian
+	4:  [0.45, 0.95, 1.00],   // crystal
+	5:  [0.60, 0.55, 0.55],   // ash
+	6:  [0.45, 0.95, 0.45],   // acid
+	7:  [0.40, 0.95, 0.75],   // glowmoss
+	8:  [0.95, 0.45, 0.85],   // fungus
+	9:  [0.55, 0.40, 0.30],   // alien_wood
+	10: [0.60, 0.95, 0.85],   // glow_leaves
+};
+
+controller.onBlockBroken = (x, y, z, blockId) => {
+	let col = BLOCK_DUST_COLOR[blockId] || [0.55, 0.50, 0.55];
+	bursts.spawn(x + 0.5, y + 0.5, z + 0.5, col);
+};
+
+// --- Bow ------------------------------------------------------------------
+//
+// The player charges the bow with E (held) and releases to fire. An arrow
+// is one-shot lethal to any mob it hits. Trail particles emitted each
+// frame from the in-flight arrow give it a glowing streak.
+
+let arrows = [];
+
+controller.onBowFire = (charge) => {
+	let speed = 18 + charge * 24;          // 18..42 m/s
+	let v = camera.lookat;
+	let p = camera.pos;
+	// Spawn a metre or so in front of the camera so the arrow doesn't
+	// instantly self-intersect the player's collision box.
+	arrows.push(new Arrow(
+		p.x + v.x * 0.6, p.y + v.y * 0.6, p.z + v.z * 0.6,
+		v.x * speed,     v.y * speed,     v.z * speed,
+	));
+};
+
+// Bow HUD — a small canvas drawn at the bottom-centre. Visible only while
+// charging; the string pulls back proportionally to charge, and the colour
+// shifts toward gold at full draw.
+let bowHud = document.createElement("canvas");
+bowHud.width  = 220;
+bowHud.height = 270;
+bowHud.style.cssText = [
+	"position: fixed",
+	"bottom: 24px",
+	"left: 50%",
+	"transform: translateX(-50%)",
+	"pointer-events: none",
+	"z-index: 50",
+	"display: none",
+].join(";");
+document.body.appendChild(bowHud);
+let bowCtx = bowHud.getContext("2d");
+
+function drawBowHud(charge)
+{
+	let g = bowCtx;
+	g.clearRect(0, 0, 220, 270);
+
+	const cx = 110, top = 20, bottom = 240, mid = (top + bottom) / 2;
+	const pull = charge * 62;
+	const fullDraw = charge >= 0.95;
+
+	// Bow limb — single curved stroke from top tip through belly to bottom tip.
+	g.strokeStyle = "#7a4a22";
+	g.lineWidth = 9;
+	g.lineCap = "round";
+	g.beginPath();
+	g.moveTo(cx, top);
+	g.quadraticCurveTo(cx - 78, mid, cx, bottom);
+	g.stroke();
+
+	// Wood highlight along the inside of the limb.
+	g.strokeStyle = "#a06838";
+	g.lineWidth = 3;
+	g.beginPath();
+	g.moveTo(cx, top + 8);
+	g.quadraticCurveTo(cx - 64, mid, cx, bottom - 8);
+	g.stroke();
+
+	// String — bent toward the camera by `pull`.
+	g.strokeStyle = fullDraw ? "#fff0a0" : "#e8e8e8";
+	g.lineWidth = 2;
+	g.beginPath();
+	g.moveTo(cx, top);
+	g.lineTo(cx + pull, mid);
+	g.lineTo(cx, bottom);
+	g.stroke();
+
+	// Arrow nocked on the string.
+	if(charge > 0.05) {
+		const ax = cx + pull;
+		g.strokeStyle = "#c87838";
+		g.lineWidth = 4;
+		g.lineCap = "round";
+		g.beginPath();
+		g.moveTo(ax - 110, mid);
+		g.lineTo(ax, mid);
+		g.stroke();
+		// Head
+		g.fillStyle = fullDraw ? "#ffe48a" : "#e0a060";
+		g.beginPath();
+		g.moveTo(ax,      mid - 6);
+		g.lineTo(ax + 14, mid);
+		g.lineTo(ax,      mid + 6);
+		g.closePath();
+		g.fill();
+		// Fletching
+		g.fillStyle = "#cc4477";
+		g.beginPath();
+		g.moveTo(ax - 110,    mid - 5);
+		g.lineTo(ax - 102, mid);
+		g.lineTo(ax - 110,    mid + 5);
+		g.lineTo(ax - 118,    mid);
+		g.closePath();
+		g.fill();
+	}
+
+	// Charge bar.
+	g.fillStyle = "rgba(0, 0, 0, 0.45)";
+	g.fillRect(20, 252, 180, 6);
+	g.fillStyle = fullDraw ? "#ffdd44" : "#cc6699";
+	g.fillRect(20, 252, 180 * charge, 6);
+}
 
 // --- Hostile mobs ----------------------------------------------------------
 
@@ -371,6 +558,64 @@ function tickRandomSpawns(delta)
 // Kick off policy load early so by the time a mob spawns, inference is ready.
 loadMobPolicy();
 
+// --- Home screen ---------------------------------------------------------
+// Full-screen overlay shown at page load. The frame loop renders the world
+// behind it (so the player previews the scene), but all game-state updates
+// (controller, mob spawning/AI, drowning, damage, particles) are gated on
+// `gameStarted` so the player isn't dying or being chased while reading.
+let gameStarted = false;
+
+let homeOverlay = document.createElement("div");
+homeOverlay.style.cssText = [
+	"position: fixed",
+	"inset: 0",
+	"background: radial-gradient(ellipse at center, rgba(20, 5, 35, 0.55) 0%, rgba(8, 2, 18, 0.92) 100%)",
+	"display: flex",
+	"flex-direction: column",
+	"align-items: center",
+	"justify-content: center",
+	"font-family: 'Courier New', monospace",
+	"z-index: 1000",
+	"user-select: none",
+].join(";");
+homeOverlay.innerHTML = `
+	<h1 style="
+		font-size: 78px;
+		letter-spacing: 8px;
+		margin: 0 0 12px;
+		color: #ff99dd;
+		text-shadow: 0 0 18px #ff55cc, 0 0 38px #ff55cc, 0 0 60px #aa33aa;
+	">OpenWorldCraft</h1>
+	<p style="font-size: 16px; color: #c8a8d8; opacity: 0.85; margin: 0 0 36px;
+	          letter-spacing: 4px;">an alien bioluminescent voxel world</p>
+	<button id="startBtn" style="
+		padding: 16px 56px;
+		font-size: 22px;
+		font-family: inherit;
+		color: #ffe0f5;
+		background: rgba(80, 30, 100, 0.55);
+		border: 2px solid #cc66cc;
+		border-radius: 8px;
+		cursor: pointer;
+		text-transform: uppercase;
+		letter-spacing: 4px;
+		box-shadow: 0 0 24px rgba(204, 102, 204, 0.45);
+	">Click to Begin</button>
+	<div style="margin-top: 56px; font-size: 13px; color: #a890b8; opacity: 0.7;
+	            max-width: 480px; text-align: center; line-height: 1.9;">
+		WASD move &middot; SHIFT sprint &middot; SPACE jump<br>
+		F flashlight &middot; 1-9 hotbar &middot; mouse wheel cycle slot<br>
+		Left-click attack/break &middot; Right-click place block
+	</div>
+`;
+document.body.appendChild(homeOverlay);
+
+document.getElementById("startBtn").addEventListener("click", e => {
+	e.stopPropagation();
+	homeOverlay.style.display = "none";
+	gameStarted = true;
+});
+
 display.onframe = () =>
 {
 	dbg.frame();
@@ -391,17 +636,21 @@ display.onframe = () =>
 	if(missing) {
 		map.loadChunk(missing[0], missing[1]);
 	}
-	
-	controller.update(1/60);
-	updateDrowning(1/60);
 
-	server.setMyPos(camera.pos.x, camera.pos.y, camera.pos.z, camera.rx, camera.rz);
-	
 	camera.aspect = display.getAspect();
-	camera.update(1/60);
-	
-	picker.pick(camera.pos, camera.lookat, 16);
-	hotbar.update();
+
+	// Game-state updates only run once the player clicks "Begin", and stop
+	// while the death overlay is up. The world is still rendered behind
+	// each overlay so they sit on top of the live scene.
+	let active = gameStarted && !dead;
+	if(active) {
+		controller.update(1/60);
+		updateDrowning(1/60);
+		server.setMyPos(camera.pos.x, camera.pos.y, camera.pos.z, camera.rx, camera.rz);
+		camera.update(1/60);
+		picker.pick(camera.pos, camera.lookat, 16);
+		hotbar.update();
+	}
 
 	map.update();
 	
@@ -430,29 +679,57 @@ display.onframe = () =>
 		players[id].draw(camera, sun);
 	}
 
-	// Hostile mobs — three guaranteed greeters at spawn, then random
-	// trickle-spawns up to MAX_MOBS.
-	trySpawnGreeterMob();
-	tickRandomSpawns(1/60);
-	let sinceAttack = (performance.now() - lastPlayerAttackTime) / 1000;
-	for(let i = hostileMobs.length - 1; i >= 0; i--) {
-		let mob = hostileMobs[i];
-		mob.update(1/60, camera, sinceAttack);
-		if(mob.removed) {
-			hostileMobs.splice(i, 1);
+	if(active) {
+		// Hostile mobs — three guaranteed greeters at spawn, then random
+		// trickle-spawns up to MAX_MOBS.
+		trySpawnGreeterMob();
+		tickRandomSpawns(1/60);
+		let sinceAttack = (performance.now() - lastPlayerAttackTime) / 1000;
+		for(let i = hostileMobs.length - 1; i >= 0; i--) {
+			let mob = hostileMobs[i];
+			mob.update(1/60, camera, sinceAttack);
+			if(mob.removed) {
+				hostileMobs.splice(i, 1);
+			}
+			else {
+				mob.draw(camera, sun);
+			}
 		}
-		else {
-			mob.draw(camera, sun);
+
+		mobHud.textContent = `MOBS: ${hostileMobs.length}/${MAX_MOBS}  tries:${_spawnAttempts}  skipped:${_spawnSkipped}  last:${_lastSpawnInfo}`;
+
+		// Arrows — physics + collision, with a trail particle each frame so
+		// the projectile reads as a glowing streak.
+		for(let i = arrows.length - 1; i >= 0; i--) {
+			let a = arrows[i];
+			a.update(1/60, map, hostileMobs);
+			if(a.dead) {
+				arrows.splice(i, 1);
+				continue;
+			}
+			bursts.trail(a.pos.x, a.pos.y, a.pos.z, [1.0, 0.78, 0.30]);
+			bursts.trail(a.pos.x, a.pos.y, a.pos.z, [1.0, 0.55, 0.18], 18, 0.25);
+		}
+
+		// Ambient particles — drawn into the scene FBO so bloom picks them up.
+		particles.update(1/60, camera);
+		particles.draw(camera);
+
+		// One-shot burst particles (block-break dust, arrow trails).
+		bursts.update(1/60);
+		bursts.draw(camera);
+
+		picker.draw(camera);
+
+		// Bow HUD — visible only while drawing the bow back.
+		if(controller.bowCharging) {
+			bowHud.style.display = "block";
+			drawBowHud(controller.bowCharge);
+		}
+		else if(bowHud.style.display !== "none") {
+			bowHud.style.display = "none";
 		}
 	}
-
-	mobHud.textContent = `MOBS: ${hostileMobs.length}/${MAX_MOBS}  tries:${_spawnAttempts}  skipped:${_spawnSkipped}  last:${_lastSpawnInfo}`;
-
-	// Ambient particles — drawn into the scene FBO so bloom picks them up.
-	particles.update(1/60, camera);
-	particles.draw(camera);
-
-	picker.draw(camera);
 
 	postProcessor.endSceneAndComposite();
 };
