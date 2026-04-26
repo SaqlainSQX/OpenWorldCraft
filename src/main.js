@@ -107,6 +107,9 @@ function respawn() {
 	playerHP = PLAYER_MAX_HP;
 	submergedTime = 0;
 	drownDamageAccum = 0;
+	// Disarm fall tracking so the spawn-drop doesn't deal damage on landing.
+	hasLanded = false;
+	fallPeakZ = null;
 	renderHP();
 	dead = false;
 	deathOverlay.style.display = "none";
@@ -165,6 +168,41 @@ const DROWN_GRACE_SEC    = 10;
 const DROWN_TICK_SEC     = 3;
 let submergedTime    = 0;
 let drownDamageAccum = 0;
+
+// --- Fall damage ----------------------------------------------------------
+//
+// Damage starts at fall distance 4 (1 heart), then +1 heart for every 2
+// further blocks of fall (so 4..5 → 1, 6..7 → 2, 8..9 → 3, ...).
+// `hasLanded` keeps the spawn-fall and respawn-fall exempt: the player
+// must touch ground at least once before fall tracking arms.
+let hasLanded = false;
+let fallPeakZ = null;
+
+function updateFallDamage()
+{
+	let onGround = camera.rest.z < 0;
+	if(onGround) {
+		if(hasLanded && fallPeakZ !== null) {
+			let dist = fallPeakZ - camera.pos.z;
+			if(dist >= 4) {
+				let damage = 1 + Math.floor((dist - 4) / 2);
+				damagePlayer(damage);
+			}
+		}
+		hasLanded = true;
+		fallPeakZ = null;
+	}
+	else if(camera.inFluid) {
+		// Water cushions the fall — reset the peak so a partial drop into
+		// acid then re-emerging doesn't carry the previous airborne distance.
+		fallPeakZ = null;
+	}
+	else if(hasLanded) {
+		if(fallPeakZ === null || camera.pos.z > fallPeakZ) {
+			fallPeakZ = camera.pos.z;
+		}
+	}
+}
 
 function updateDrowning(delta) {
 	if(camera.inFluid) {
@@ -649,6 +687,7 @@ display.onframe = () =>
 		updateDrowning(1/60);
 		server.setMyPos(camera.pos.x, camera.pos.y, camera.pos.z, camera.rx, camera.rz);
 		camera.update(1/60);
+		updateFallDamage();
 		picker.pick(camera.pos, camera.lookat, 16);
 		hotbar.update();
 	}
