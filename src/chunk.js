@@ -65,6 +65,11 @@ let frag = `
 	uniform float shadowEnabled;
 	uniform vec3 lightPos[${MAX_LIGHTS}];
 	uniform vec3 lightColor[${MAX_LIGHTS}];
+	uniform vec3 uFlashPos;
+	uniform vec3 uFlashDir;       // unit, pointing where the camera looks
+	uniform vec3 uFlashColor;     // zero when flashlight is off
+	uniform float uFlashConeCos;  // cosine of the spotlight half-angle
+	uniform float uFlashRange;
 	uniform vec3 uCameraPos;
 	uniform mat4 lightVP;
 	uniform vec3 sun;
@@ -113,6 +118,30 @@ let frag = `
 			}
 		}
 		return total;
+	}
+
+	// Cone spotlight (player flashlight). Returns zero when off — the host
+	// writes uFlashColor=0 to disable. The cone uses a smoothstep falloff
+	// from uFlashConeCos to 1.0 so the beam edge is soft, not stamp-cut.
+	vec3 computeFlashlight()
+	{
+		float brightness = uFlashColor.r + uFlashColor.g + uFlashColor.b;
+		if(brightness < 0.001) return vec3(0.0);
+
+		vec3 L = uFlashPos - vWorldPos;
+		float d = length(L);
+		if(d > uFlashRange) return vec3(0.0);
+
+		vec3 Ldir = L / max(d, 0.001);
+		// uFlashDir points along the beam; the fragment is in the beam when
+		// the *opposite* of Ldir aligns with uFlashDir.
+		float align = -dot(Ldir, uFlashDir);
+		if(align < uFlashConeCos) return vec3(0.0);
+
+		float cone = smoothstep(uFlashConeCos, 1.0, align);
+		float att  = 1.0 / (1.0 + 0.05 * d + 0.012 * d * d);
+		float ndotl = max(0.0, dot(Ldir, vNormal));
+		return uFlashColor * cone * att * ndotl;
 	}
 
 	// Raymarch from camera to fragment through the shadow volume. Steps lit in
@@ -193,6 +222,7 @@ let frag = `
 
 		vec3 lit = color.rgb * lightFactor;
 		lit += color.rgb * computePointLights();
+		lit += color.rgb * computeFlashlight();
 		lit += color.rgb * vEmissive * 1.4;
 
 		// Atmospheric fog — blend toward the sky horizon colour.
@@ -464,6 +494,11 @@ export default class Chunk
 		if(lightManager) {
 			shader.assignVector3Array("lightPos", lightManager.posArr);
 			shader.assignVector3Array("lightColor", lightManager.colArr);
+			shader.assignVector("uFlashPos",   {data: lightManager.flashPos});
+			shader.assignVector("uFlashDir",   {data: lightManager.flashDir});
+			shader.assignVector("uFlashColor", {data: lightManager.flashColor});
+			shader.assignFloat("uFlashConeCos", lightManager.flashConeCos);
+			shader.assignFloat("uFlashRange",   lightManager.flashRange);
 		}
 
 		this.display.drawTriangles(count);

@@ -31,6 +31,10 @@ export default class Controller
 		this.selectedSlot = 0;
 		this.heldBlock = this.hotbar[0];
 
+		// Flashlight: toggled with F. main.js polls this each frame and
+		// pushes camera pos+forward into the LightManager.
+		this.flashlightOn = false;
+
 		speaker.loadSound("sfx/jump.ogg").then(sound => this.jumpsound = sound);
 
 		window.addEventListener("keydown", e => this.keydown(e));
@@ -67,6 +71,13 @@ export default class Controller
 			if(slot < this.hotbar.length) {
 				this.selectSlot(slot);
 			}
+		}
+
+		// F toggles the flashlight. Edge-triggered on keydown so holding F
+		// doesn't strobe (keyup clears _fPrev so re-pressing fires again).
+		if(key === "f") {
+			if(!this._fPrev) this.flashlightOn = !this.flashlightOn;
+			this._fPrev = true;
 		}
 	}
 
@@ -118,8 +129,9 @@ export default class Controller
 	keyup(e)
 	{
 		let key = this.getKey(e);
-		
+
 		this.keymap[key] = false;
+		if(key === "f") this._fPrev = false;
 	}
 	
 	mousedown(e)

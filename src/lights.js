@@ -33,6 +33,35 @@ export default class LightManager
 		this.posArr = new Float32Array(MAX_LIGHTS * 3);
 		this.colArr = new Float32Array(MAX_LIGHTS * 3);
 		this._candidates = [];
+
+		// Spotlight (flashlight) state. Off by default — turning it on writes
+		// non-zero into flashColor, which the chunk shader keys off of.
+		this.flashOn       = false;
+		this.flashPos      = new Float32Array(3);
+		this.flashDir      = new Float32Array(3);
+		this.flashColor    = new Float32Array(3);
+		this.flashConeCos  = Math.cos(22 * Math.PI / 180);  // 22° half-angle
+		this.flashRange    = 28;
+	}
+
+	// Per-frame: caller pushes camera pos + forward and on/off state.
+	setFlashlight(on, pos, dir)
+	{
+		this.flashOn = on;
+		if(on) {
+			this.flashPos[0] = pos.x; this.flashPos[1] = pos.y; this.flashPos[2] = pos.z;
+			let len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+			this.flashDir[0] = dir.x / len;
+			this.flashDir[1] = dir.y / len;
+			this.flashDir[2] = dir.z / len;
+			// Warm yellow-white beam.
+			this.flashColor[0] = 1.6;
+			this.flashColor[1] = 1.45;
+			this.flashColor[2] = 1.05;
+		}
+		else {
+			this.flashColor[0] = this.flashColor[1] = this.flashColor[2] = 0;
+		}
 	}
 
 	update(camera, map, chunkRadius)

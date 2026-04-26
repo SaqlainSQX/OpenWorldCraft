@@ -413,8 +413,10 @@ display.onframe = () =>
 	shadowMap.render(shader => map.drawDepth(camera, shader));
 
 	// Collect nearby emissive blocks into an 8-light uniform set for the
-	// main chunk pass.
+	// main chunk pass, plus push the player's flashlight into the same
+	// manager so the chunk shader can apply a cone-spotlight on top.
 	lightManager.update(camera, map, 2);
+	lightManager.setFlashlight(controller.flashlightOn, camera.pos, camera.lookat);
 
 	// Render the world into an offscreen RGBA8 FBO so the post-process
 	// stage can run bloom + tone mapping over the whole scene.
