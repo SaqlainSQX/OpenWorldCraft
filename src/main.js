@@ -602,9 +602,10 @@ homeOverlay.innerHTML = `
 		box-shadow: 0 0 24px rgba(204, 102, 204, 0.45);
 	">Click to Begin</button>
 	<div style="margin-top: 56px; font-size: 13px; color: #a890b8; opacity: 0.7;
-	            max-width: 480px; text-align: center; line-height: 1.9;">
+	            max-width: 520px; text-align: center; line-height: 1.9;">
 		WASD move &middot; SHIFT sprint &middot; SPACE jump<br>
-		F flashlight &middot; 1-9 hotbar &middot; mouse wheel cycle slot<br>
+		F flashlight &middot; E hold-and-release to fire bow<br>
+		1-9 hotbar &middot; mouse wheel cycle slot<br>
 		Left-click attack/break &middot; Right-click place block
 	</div>
 `;
