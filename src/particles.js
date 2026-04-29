@@ -11,7 +11,7 @@ import Shader from "./shader.js";
 // Rendered as gl.POINTS with additive blending so particles stack into glow
 // clumps and read properly through the bloom pass.
 
-const N_PARTICLES = 200;
+const N_PARTICLES = 100;
 const STRIDE = 7;           // x, y, z, r, g, b, size
 const SPAWN_RADIUS = 22;
 const MAX_DIST = 28;

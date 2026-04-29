@@ -1,7 +1,7 @@
 import Display from "./display.js";
 import Camera from "./camera.js";
 import Controller from "./controller.js";
-import Map from "./map.js";
+import GameMap from "./map.js";   // aliased so `Map` refers to the built-in JS Map
 import Vector from "./vector.js";
 import {radians} from "./math.js";
 import Picker from "./picker.js";
@@ -33,7 +33,7 @@ let crosshairs = new Crosshairs();
 crosshairs.appendToBody();
 
 let server = new Server();
-let map = new Map(display, server);
+let map = new GameMap(display, server);
 
 // Spawn high above spawn chunk so the player falls onto terrain on load.
 // Surface heights now reach ~44, so spawn ~80 to give a clean fall.
@@ -362,6 +362,94 @@ controller.onBlockBroken = (x, y, z, blockId) => {
 	bursts.spawn(x + 0.5, y + 0.5, z + 0.5, col);
 };
 
+// --- Fluid flow ----------------------------------------------------------
+//
+// Player-placed acid spreads outward over time. Each block tracks a "level"
+// that increases by 1 per horizontal step from its source; level capped at
+// FLUID_MAX_LEVEL so flow doesn't run forever. Down-flow is unlimited
+// (gravity), and a falling stream resumes spreading horizontally from the
+// floor with the same level it landed at + 1.
+//
+// World-generated acid pools (from terrain noise) are NOT tracked here, so
+// only the player's placements actually flow — keeps the per-tick work
+// bounded and avoids the whole sea suddenly recomputing.
+
+// Four acid block IDs map to spread levels:
+//   level 0 -> id 6  (full source — placed by player)
+//   level 1 -> id 11 (acid_mid)
+//   level 2 -> id 12 (acid_dim)
+//   level 3 -> id 13 (acid_trace, nearly transparent — dies out, no further spread)
+const ACID_BLOCKS      = [6, 11, 12, 13];
+const FLUID_MAX_LEVEL  = 3;        // last visible level; that level does not spread
+const FLUID_TICK_SEC   = 0.13;     // ~7.5 Hz — water visibly flows instead of crawling
+const FLUID_NEIGHBOURS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+const FLUID_BLOCK_SET  = new Set(ACID_BLOCKS);
+
+function blockForLevel(level) { return ACID_BLOCKS[Math.min(level, ACID_BLOCKS.length - 1)]; }
+function isFluidBlock(b)      { return FLUID_BLOCK_SET.has(b); }
+
+let fluidLevels = new Map();      // "x,y,z" -> level (0 = source)
+let _fluidTickAccum = 0;
+
+function fluidKey(x, y, z) { return x + "," + y + "," + z; }
+
+controller.onBlockPlaced = (x, y, z, blockId) => {
+	if(blockId === 6) {
+		fluidLevels.set(fluidKey(x, y, z), 0);
+		console.log(`[fluid] source registered @(${x},${y},${z}) — total tracked: ${fluidLevels.size}`);
+	}
+};
+
+function tickFluids()
+{
+	// Iterate over a snapshot so newly added flows don't get processed
+	// again in the same tick — they get one frame's pause before spreading,
+	// which makes the propagation visibly gradual.
+	let snapshot = [...fluidLevels.entries()];
+	let pending  = [];
+
+	for(let [k, level] of snapshot) {
+		let parts = k.split(",");
+		let x = +parts[0], y = +parts[1], z = +parts[2];
+
+		// Clean up entries whose block was broken or replaced with non-fluid.
+		if(!isFluidBlock(map.getBlock(x, y, z))) {
+			fluidLevels.delete(k);
+			continue;
+		}
+
+		// Level 2 (dim) is the dying edge — sits visible but spreads no further.
+		if(level >= FLUID_MAX_LEVEL) continue;
+
+		// Down-flow takes priority and keeps the level (gravity is free, so
+		// a falling stream stays the same brightness as its parent).
+		if(map.getBlock(x, y, z - 1) === 0) {
+			pending.push({x: x, y: y, z: z - 1, level: level});
+			continue;
+		}
+
+		// Horizontal spread to the next level (faded).
+		for(let i = 0; i < FLUID_NEIGHBOURS.length; i++) {
+			let dx = FLUID_NEIGHBOURS[i][0];
+			let dy = FLUID_NEIGHBOURS[i][1];
+			if(map.getBlock(x + dx, y + dy, z) === 0) {
+				pending.push({x: x + dx, y: y + dy, z: z, level: level + 1});
+			}
+		}
+	}
+
+	// Apply flows. Only fill if the cell isn't already a brighter (lower-level) source.
+	for(let i = 0; i < pending.length; i++) {
+		let f = pending[i];
+		let k = fluidKey(f.x, f.y, f.z);
+		let existing = fluidLevels.get(k);
+		if(existing === undefined || existing > f.level) {
+			map.setBlock(f.x, f.y, f.z, blockForLevel(f.level));
+			fluidLevels.set(k, f.level);
+		}
+	}
+}
+
 // --- Bow ------------------------------------------------------------------
 //
 // The player charges the bow with E (held) and releases to fire. An arrow
@@ -473,12 +561,13 @@ function drawBowHud(charge)
 
 // --- Hostile mobs ----------------------------------------------------------
 
-const MAX_MOBS = 6;
+const MAX_MOBS = 3;                 // dropped from 6: hostile mobs are the
+                                    // most expensive AI/animation cost per frame
 const GREETER_COUNT = 3;            // mobs guaranteed in front of player at spawn
 const SPAWN_RADIUS_MIN = 8;
 const SPAWN_RADIUS_MAX = 22;
-const RANDOM_SPAWN_MIN = 8;         // seconds between background spawns (random)
-const RANDOM_SPAWN_MAX = 20;
+const RANDOM_SPAWN_MIN = 12;
+const RANDOM_SPAWN_MAX = 25;
 
 let hostileMobs = [];
 let lastPlayerAttackTime = -999;
@@ -507,6 +596,7 @@ document.body.appendChild(mobHud);
 let _spawnAttempts = 0;
 let _spawnSkipped  = 0;
 let _lastSpawnInfo = "—";
+let _hudTick = 0;
 let _greeterSpawnedCount = 0;
 let _randomSpawnTimer = RANDOM_SPAWN_MIN + Math.random() * (RANDOM_SPAWN_MAX - RANDOM_SPAWN_MIN);
 
@@ -690,6 +780,12 @@ display.onframe = () =>
 		updateFallDamage();
 		picker.pick(camera.pos, camera.lookat, 16);
 		hotbar.update();
+
+		_fluidTickAccum += 1/60;
+		while(_fluidTickAccum >= FLUID_TICK_SEC) {
+			_fluidTickAccum -= FLUID_TICK_SEC;
+			tickFluids();
+		}
 	}
 
 	map.update();
@@ -736,7 +832,12 @@ display.onframe = () =>
 			}
 		}
 
-		mobHud.textContent = `MOBS: ${hostileMobs.length}/${MAX_MOBS}  tries:${_spawnAttempts}  skipped:${_spawnSkipped}  last:${_lastSpawnInfo}`;
+		// Update the diagnostic HUD ~3 Hz instead of 60 Hz — DOM textContent
+		// writes are cheap but layout cost is non-zero and adds up.
+		_hudTick = (_hudTick + 1) % 20;
+		if(_hudTick === 0) {
+			mobHud.textContent = `MOBS: ${hostileMobs.length}/${MAX_MOBS}  tries:${_spawnAttempts}  fluids:${fluidLevels.size}  held:${controller.heldBlock}`;
+		}
 
 		// Arrows — physics + collision, with a trail particle each frame so
 		// the projectile reads as a glowing streak.

@@ -23,6 +23,7 @@ let vert = `
 	varying mediump float vAmbient;
 	varying mediump float vEmissive;
 	varying mediump float vIsWater;
+	varying mediump float vWaterFade;   // 0 = full source, 1 = farthest spread
 	varying mediump vec3 vNormal;
 	varying highp vec3 vWorldPos;
 	varying highp vec4 vLightPos;
@@ -49,9 +50,11 @@ let vert = `
 		vAmbient = (4.0 - actualAo) * 0.25;
 		vEmissive = isEm;
 
-		// Flag acid top faces for the water-shading branch in the fragment
-		// shader. Face id 16 is acid; norm.z > 0.5 isolates top faces.
-		vIsWater = step(15.5, face) * (1.0 - step(16.5, face)) * step(0.5, norm.z);
+		// Acid renders via the water branch on its top face. Face IDs 16..19
+		// are the four spread levels; the fragment shader uses vWaterFade
+		// to dim colour + alpha so further spread reads as visibly thinner.
+		vIsWater   = step(15.5, face) * (1.0 - step(19.5, face)) * step(0.5, norm.z);
+		vWaterFade = clamp((face - 16.0) / 3.0, 0.0, 1.0);    // 0, 0.33, 0.66, 1.0
 	}
 `;
 
@@ -81,6 +84,7 @@ let frag = `
 	varying mediump float vAmbient;
 	varying mediump float vEmissive;
 	varying mediump float vIsWater;
+	varying mediump float vWaterFade;
 	varying mediump vec3 vNormal;
 	varying highp vec3 vWorldPos;
 	varying highp vec4 vLightPos;
@@ -156,10 +160,10 @@ let frag = `
 		if(sunAlign < 0.05) return 0.0;
 
 		vec3 ray = vWorldPos - uCameraPos;
-		vec3 stepv = ray / 6.0;
+		vec3 stepv = ray / 4.0;
 		vec3 p = uCameraPos + stepv * 0.5;
 		float lit = 0.0;
-		for(int i = 0; i < 6; i++) {
+		for(int i = 0; i < 4; i++) {
 			vec4 lp = lightVP * vec4(p, 1.0);
 			vec3 sc = lp.xyz / lp.w * 0.5 + 0.5;
 			if(sc.x >= 0.0 && sc.x <= 1.0 && sc.y >= 0.0 && sc.y <= 1.0 && sc.z <= 1.0) {
@@ -168,7 +172,7 @@ let frag = `
 			}
 			p += stepv;
 		}
-		return (lit / 6.0) * pow(sunAlign, 3.0);
+		return (lit / 4.0) * pow(sunAlign, 3.0);
 	}
 
 	// Per-fragment water normal from two summed sine waves whose gradient
@@ -194,7 +198,8 @@ let frag = `
 		bool isWater = vIsWater > 0.5;
 
 		// Water branch: recompute colour using Fresnel reflection, sun
-		// specular, and a wavy surface normal.
+		// specular, and a wavy surface normal. vWaterFade > 0 dims the
+		// colour and alpha so progressively-spread acid reads as thinner.
 		if(isWater) {
 			shadingNormal = waterNormal(vWorldPos.xy, uTime);
 			vec3 viewDir = normalize(uCameraPos - vWorldPos);
@@ -209,8 +214,11 @@ let frag = `
 			float spec = pow(max(0.0, dot(shadingNormal, halfV)), 120.0);
 			wc += vec3(1.0, 0.9, 0.75) * spec * 2.0;
 
+			// Spread fade: dim colour + drop alpha by half/quarter as the
+			// spread level rises (matching "1/2 in next, 1/4 after" intent).
+			wc   *= mix(1.0, 0.55, vWaterFade);
 			color.rgb = wc;
-			alpha = 0.78;
+			alpha = mix(0.78, 0.28, vWaterFade);
 		}
 
 		// Sun diffuse — recomputed with shading normal so water catches
@@ -444,8 +452,6 @@ export default class Chunk
 		this.count = mesh.length / 10;
 		this.transbuf.update(new Float32Array(transmesh));
 		this.transcount = transmesh.length / 10;
-		
-		console.log("chunk mesh updated", this.cx, this.cy, "time", performance.now() - this.meshingStartTime);
 	}
 	
 	draw(camera, sun, drawTrans, shadowMap, lightManager)

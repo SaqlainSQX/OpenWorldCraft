@@ -23,10 +23,11 @@ export default class Controller
 		// Slot order: grass, soil, obsidian, crystal, glowmoss, wood, leaves, ash, acid.
 		this.hotbar = [1, 2, 3, 4, 7, 9, 10, 5, 6];
 
-		// Inventory: block ID -> count. Player starts empty and collects by
-		// breaking. Placement is gated on count > 0 and decrements on use.
+		// Inventory: block ID -> count. Each hotbar block starts with a
+		// generous stack so the demo can showcase placement (and fluid flow)
+		// without first grinding for resources.
 		this.inventory = {};
-		for(let id of this.hotbar) this.inventory[id] = 0;
+		for(let id of this.hotbar) this.inventory[id] = 32;
 
 		this.selectedSlot = 0;
 		this.heldBlock = this.hotbar[0];
@@ -192,7 +193,11 @@ export default class Controller
 					if(!overlap) {
 						this.map.setBlock(px, py, pz, this.heldBlock);
 						this.inventory[this.heldBlock] -= 1;
+						if(this.onBlockPlaced) this.onBlockPlaced(px, py, pz, this.heldBlock);
 					}
+				}
+				else {
+					console.log(`[place] no stock of block id=${this.heldBlock} (slot ${this.selectedSlot + 1})`);
 				}
 			}
 		}

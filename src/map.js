@@ -2,14 +2,21 @@ import Chunk from "./chunk.js";
 
 // Block IDs that behave as fluids: no collision, but cause buoyancy & drag.
 // Keep this in sync with src/blocks.js.
-const FLUID_IDS = new Set([6]);  // acid
+//   6  = acid (full source)
+//   11 = acid_mid    (1st spread level — visually 1/3 faded)
+//   12 = acid_dim    (2nd spread level — visually 2/3 faded)
+//   13 = acid_trace  (3rd spread level — nearly transparent, dies out)
+const FLUID_IDS = new Set([6, 11, 12, 13]);
 
 export default class Map
 {
 	constructor(display, server)
 	{
 		if(display) {
-			this.mesher = new Worker("src/mesher.js");
+			// Cache-busting query — workers cache aggressively in browsers and
+			// stale copies cause "blocks[id].transparent is undefined" when new
+			// block IDs are added; bump this when the inlined block table changes.
+			this.mesher = new Worker("src/mesher.js?v=3");
 
 			this.mesher.onerror = e => {
 				console.error("[mesher] error:", e.message, "@", e.filename, "line", e.lineno);
@@ -168,10 +175,11 @@ export default class Map
 
 	// Renders opaque chunk geometry (no transparent blocks — leaves/acid
 	// don't cast shadows) from the light's POV, using the ShadowMap's
-	// depth-only shader. Uses the same cull radius as the colour pass.
+	// depth-only shader. Uses a tighter cull radius than the colour pass
+	// because shadow accuracy at far range isn't worth the geometry cost.
 	drawDepth(camera, shadowShader)
 	{
-		const DRAW_RADIUS = 2;
+		const DRAW_RADIUS = 1;
 		const R2 = DRAW_RADIUS * DRAW_RADIUS;
 		let ccx = Math.floor(camera.pos.x / 16);
 		let ccy = Math.floor(camera.pos.y / 16);

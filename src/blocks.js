@@ -24,4 +24,9 @@ export default [
 	{ name: "fungus",      faces: [8, 8, 8, 8, 8, 8], emissive: true },
 	{ name: "alien_wood",  faces: [9, 9,10, 9, 9,10] },
 	{ name: "glow_leaves", faces: [11,11,11,11,11,11], transparent: true, emissive: true },
+	// Spread-only acid variants. Same texture as full acid but using face IDs
+	// 17, 18, 19 so the chunk shader can dim them (faded acid = dying out).
+	{ name: "acid_mid",    faces: [17,17,17,17,17,17], transparent: true, emissive: true },
+	{ name: "acid_dim",    faces: [18,18,18,18,18,18], transparent: true, emissive: true },
+	{ name: "acid_trace",  faces: [19,19,19,19,19,19], transparent: true, emissive: true },
 ];
