@@ -298,3 +298,4 @@ UI log 297: rendering component
 UI log 298: rendering component
 UI log 299: rendering component
 UI log 300: rendering component
+extra log
