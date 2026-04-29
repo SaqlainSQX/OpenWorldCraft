@@ -436,4 +436,4 @@ The training script runs in ~1 second on a laptop and prints train/val accuracy 
 ## Credits
 
 - Engine fork of [guckstift/voxel-game-js](https://github.com/guckstift/voxel-game-js) (MIT-licensed).
-- Built as a 4th-semester computer graphics elective project.
+
